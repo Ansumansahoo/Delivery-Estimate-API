@@ -1,88 +1,269 @@
-# ⚡ SwiftETA v2.5 — India Delivery Estimator
+# ⚡ SwiftETA v2.5 — India Delivery Estimator + B2B SDK
 
-A production-ready, multi-level India delivery ETA estimation engine built as a single-file frontend application.
+> A production-ready, multi-level India shipping ETA engine for **D2C storefronts** and a full **B2B/Wholesale portal** with a drop-in SDK and REST API that suppliers can embed on their own storefront.
 
-## 🚀 Live Demo
+---
 
-Open `index.html` directly in any browser — no build step required.
+## 🗂️ Repository Structure
 
-## ✨ Features
+```
+Delivery-Estimate-API/
+├── index.html              — Vanilla HTML standalone app (no build needed)
+├── package.json            — Vite + React + Tailwind project config
+├── src/
+│   ├── App.jsx             — Main React app (D2C ETA simulator + tabs)
+│   ├── B2BPortal.jsx       — B2B Wholesale portal (login-gated SDK & API)
+│   └── swifteta-sdk.js     — Standalone JS SDK (UMD — works anywhere)
+└── README.md               — This file
+```
 
-- **Multi-level ETA Engine** — L1 (Live Shiprocket API) → L2 (Simulated carriers) → L3 (Haversine fallback)
-- **Real Shiprocket Integration** — Authenticate with your credentials for live serviceability checks
-- **5 Real/Free APIs** integrated:
-  - 📮 India Post Pincode API (free, no key)
-  - 🗺️ OpenStreetMap Nominatim geocoding (free, no key)
-  - 📅 Nager.Date India public holidays (free, no key)
-  - 🛡️ Shiprocket serviceability (free trial — 500 shipments)
-  - 📦 NimbusPost (ready to wire, free tier)
-- **Haversine distance** calculation for accurate zone assignment
-- **Business-day ETA** that skips weekends and public holidays
-- **6 Courier Comparison** view with best-price highlighting
-- **Zone Map** — 6 delivery zones by distance (Local → Remote)
-- **Live Log Panel** — real-time engine activity feed
-- **Express Mode** — toggle for faster delivery estimates
-- **COD toggle** with automatic surcharge
+---
 
-## 🔌 API Reference
+## 🚀 Quick Start
 
-| API | Cost | Key Required | Endpoint |
-|-----|------|-------------|----------|
-| India Post Pincode | FREE | No | `https://api.postalpincode.in/pincode/{PIN}` |
-| OSM Nominatim | FREE | No | `https://nominatim.openstreetmap.org/search` |
-| Nager.Date Holidays | FREE | No | `https://date.nager.at/api/v3/PublicHolidays/2026/IN` |
-| Shiprocket | Free trial | Email + Password | `https://apiv2.shiprocket.in/v1/external/` |
-| NimbusPost | Free tier | Token | `https://api.nimbuspost.com/v1/` |
-| Delhivery | Partner/KYC | Token | Enterprise onboarding |
+### Option A — Open directly (no install)
+```bash
+# Just open index.html in any browser
+open index.html
+```
 
-## 🛠️ Usage
+### Option B — Vite dev server
+```bash
+git clone https://github.com/Ansumansahoo/Delivery-Estimate-API.git
+cd Delivery-Estimate-API
+npm install
+npm run dev        # → http://localhost:5173
+```
 
-1. Open `index.html` in a browser
-2. Enter origin and destination pincodes
-3. (Optional) Add Shiprocket credentials → click **Sync Real Shiprocket API**
-4. Click **Calculate ETA** or press Enter
-5. View results across 5 tabs: Results, Courier Comparison, Zone Map, Holidays, API Docs
+### Option C — Production build
+```bash
+npm run build      # output → dist/
+npm run preview    # preview the build locally
+```
+
+---
+
+## 🏪 Part 1 — D2C ETA Simulator (`App.jsx`)
+
+The main app for e-commerce teams to test and demonstrate shipping estimates.
+
+| Feature | Description |
+|---|---|
+| Multi-level engine | L1 Shiprocket live API → L2 simulated carriers → L3 Haversine fallback |
+| Real Shiprocket auth | Enter email + password to unlock live serviceability data |
+| 5 free APIs | India Post Pincode, OSM Nominatim, Nager.Date holidays |
+| 3 live UI views | Product page widget · Cart panel · Checkout summary |
+| Zone Map | 6 zones (Local ≤50 km → Cross-country >1000 km) |
+| Business-day ETA | Skips weekends + public holidays |
+| Live log panel | Real-time engine activity feed |
+
+---
+
+## 🏢 Part 2 — B2B / Wholesale Portal (`B2BPortal.jsx`)
+
+A separate portal for **suppliers, wholesalers and distributors** to estimate bulk shipping costs and embed the widget on their own storefront.
+
+### Login Wall
+
+All SDK credentials, API keys, and code snippets are **blurred and inaccessible** until the user signs in.
+
+**Demo accounts (try now):**
+
+| Email | Password | Company |
+|---|---|---|
+| supplier@demo.com | demo123 | Apex Wholesale Ltd. |
+| retailer@demo.com | retail123 | RetailHub Pvt. Ltd. |
+| wholesale@demo.com | bulk2026 | BulkMart Distributors |
+
+### Portal Tabs
+
+| Tab | Access | Description |
+|---|---|---|
+| ETA Calculator | Public | Bulk/single order estimate tool with quantity support |
+| SDK Integration | Login required | Copy-paste widget snippet, NPM usage, API key |
+| API Reference | Login required | Full REST endpoint docs with request/response examples |
+| Analytics | Login required | Usage stats, quota bar, recent API call log |
+
+---
+
+## 📦 SDK Integration (`swifteta-sdk.js`)
+
+A lightweight (~8 KB) UMD library. Works in browsers, Node/CommonJS, and ES modules.
+
+### CDN embed (fastest)
+```html
+<script src="https://cdn.swifteta.in/sdk/v2/swifteta-b2b.min.js"></script>
+<script>
+  SwiftETA.init({
+    apiKey:  'YOUR_API_KEY',   // from the B2B portal after login
+    origin:  '560001',          // your warehouse pincode
+    theme:   'auto',            // 'light' | 'dark' | 'auto'
+  });
+
+  // Drop-in widget — just point at any container
+  SwiftETA.renderWidget('#shipping-estimator');
+</script>
+
+<div id="shipping-estimator"></div>
+```
+
+### NPM / React
+```bash
+npm install @swifteta/b2b-sdk
+```
+
+```jsx
+import SwiftETA from '@swifteta/b2b-sdk';
+
+SwiftETA.init({ apiKey: 'YOUR_API_KEY', origin: '560001' });
+
+// In your component
+const result = await SwiftETA.estimate({
+  destination: '110001',
+  weight_kg:   2.5,
+  express:     false,
+  cod:         true,
+});
+console.log(result.days_min, result.rate_inr);
+```
+
+### SDK Methods
+
+| Method | Description |
+|---|---|
+| `SwiftETA.init(opts)` | Initialise with API key and warehouse origin |
+| `SwiftETA.estimate(params)` | Single-order ETA + rate estimate |
+| `SwiftETA.bulkEstimate(orders)` | Up to 100 orders in one call |
+| `SwiftETA.checkServiceable(pin)` | Check if a pincode is covered |
+| `SwiftETA.getUsage()` | Fetch account quota/usage stats |
+| `SwiftETA.renderWidget(selector, opts)` | Render drop-in widget into any DOM element |
+
+---
+
+## 🌐 REST API Reference
+
+**Base URL:** `https://api.swifteta.in`
+
+**Authentication:** All requests require:
+```
+Authorization: Bearer YOUR_API_KEY
+```
+
+### Endpoints
+
+#### `POST /api/b2b/v1/estimate`
+Single shipment ETA calculation.
+
+```json
+// Request
+{
+  "origin":      "560001",
+  "destination": "110001",
+  "weight_kg":   2.5,
+  "express":     false,
+  "cod":         true
+}
+
+// Response
+{
+  "status":      "serviceable",
+  "days_min":    3,
+  "days_max":    4,
+  "rate_inr":    152,
+  "carrier":     "Shiprocket Air",
+  "zone":        "National",
+  "distance_km": 1748,
+  "cached":      false
+}
+```
+
+#### `POST /api/b2b/v1/bulk-estimate`
+Up to 100 orders in a single call.
+
+```json
+// Request
+{
+  "origin": "560001",
+  "orders": [
+    { "id": "ORD-001", "destination": "400001", "weight_kg": 1.2 },
+    { "id": "ORD-002", "destination": "700001", "weight_kg": 3.0 }
+  ]
+}
+
+// Response
+{
+  "results": [
+    { "id": "ORD-001", "days_min": 4, "rate_inr": 99  },
+    { "id": "ORD-002", "days_min": 5, "rate_inr": 138 }
+  ],
+  "processed": 2,
+  "cached":    1
+}
+```
+
+#### `GET /api/b2b/v1/serviceable?pin={pincode}`
+Check serviceability without a full estimate.
+
+#### `GET /api/b2b/v1/usage`
+Current API quota and usage statistics.
+
+### Error Codes
+
+| Code | HTTP | Meaning |
+|---|---|---|
+| ERR_UNSERVICEABLE | 200 | Pincode not in coverage |
+| ERR_INVALID_PIN | 400 | Malformed pincode |
+| ERR_QUOTA | 429 | Rate limit exceeded |
+| ERR_AUTH | 401 | Invalid/expired API key |
+| ERR_SERVER | 500 | Internal error — retry |
+
+### Rate Limits
+
+| Plan | Limit |
+|---|---|
+| Starter | 200 req/min · 5,000/month |
+| Pro | 1,000 req/min · 50,000/month |
+| Enterprise | Unlimited |
+
+---
+
+## 🔌 API Keys — Where to Get Them
+
+| Service | Free? | How |
+|---|---|---|
+| SwiftETA B2B | Portal login | Register → Login → Copy from SDK tab |
+| Shiprocket | Free trial (500 shipments) | app.shiprocket.in |
+| India Post Pincode | 100% free, no key | api.postalpincode.in |
+| OSM Nominatim | 100% free, no key | nominatim.openstreetmap.org |
+| Nager.Date Holidays | 100% free, no key | date.nager.at |
+| NimbusPost | Free tier | nimbuspost.com → Dashboard → API |
+
+---
 
 ## 🏗️ Architecture
 
 ```
-User Input (Origin PIN + Dest PIN)
-    │
-    ├─► India Post API → District/State lookup
-    ├─► Nominatim API  → lat/lon geocoding
-    │
-    ▼
-Haversine Distance → Zone Classification (Z1-Z6)
-    │
-    ├─► L1: Shiprocket Live API (if authenticated)
-    ├─► L2: NimbusPost / Delhivery simulation
-    └─► L3: Pure Haversine fallback
-    │
-    ▼
-Business Days (skip weekends + Nager.Date holidays)
-    │
-    ▼
-ETA Result + Courier Comparison
+User Input (origin PIN + destination PIN)
+        │
+        ├─► India Post API   → district / state lookup
+        ├─► Nominatim API    → lat/lon geocoding
+        │
+        ▼
+Haversine Distance → Zone (Z1 Local … Z6 Cross-Country)
+        │
+        ├─► L1  Shiprocket live API  (if credentials provided)
+        ├─► L1s Simulated carriers   (Shiprocket / NimbusPost / Delhivery toggles)
+        └─► L2  Rule-based Haversine fallback (when all APIs offline)
+        │
+        ▼
+Business Days  (skip weekends + Nager.Date public holidays)
+        │
+        ▼
+ETA Result  +  Courier Comparison  +  SDK embed snippet
 ```
 
-## 📦 Zone Classification
-
-| Zone | Distance | Business Days | Base Rate |
-|------|----------|---------------|-----------|
-| Z1 — Local | ≤50 km | 1 day | ₹35 |
-| Z2 — Zonal | ≤200 km | 2 days | ₹50 |
-| Z3 — Regional | ≤500 km | 3 days | ₹70 |
-| Z4 — Metro | ≤1000 km | 4 days | ₹95 |
-| Z5 — National | ≤2000 km | 5 days | ₹120 |
-| Z6 — Remote | >2000 km | 7 days | ₹150 |
-
-## 🔐 Shiprocket Setup
-
-1. Register at [app.shiprocket.in](https://app.shiprocket.in)
-2. In the sidebar, enter your email + password
-3. Click **Sync Real Shiprocket API**
-4. Token is fetched and stored in memory — real serviceability checks begin
+---
 
 ## 📄 License
 
-MIT — free to use and modify.
+MIT — free to use, modify, and distribute.
