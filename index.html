@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SwiftETA v2.5 — India Delivery Estimator</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3248;
+    --accent: #6c63ff;
+    --accent2: #00d4aa;
+    --warn: #f5a623;
+    --danger: #ff4d6d;
+    --success: #22c55e;
+    --text: #e8eaf6;
+    --muted: #8892b0;
+    --radius: 12px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; min-height:100vh; }
+  .app { display:grid; grid-template-columns:340px 1fr; grid-template-rows:auto 1fr; min-height:100vh; }
+  header { grid-column:1/-1; background:var(--surface); border-bottom:1px solid var(--border); padding:16px 24px; display:flex; align-items:center; gap:16px; }
+  .logo { font-size:1.5rem; font-weight:800; background:linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .version-badge { background:var(--accent); color:#fff; font-size:0.7rem; padding:2px 8px; border-radius:20px; font-weight:700; }
+  .header-sub { color:var(--muted); font-size:0.85rem; margin-left:auto; }
+  .api-status-row { display:flex; gap:8px; margin-left:auto; align-items:center; }
+  .api-dot { width:8px; height:8px; border-radius:50%; background:var(--success); }
+  .api-dot.warn { background:var(--warn); }
+  .api-dot.off { background:var(--muted); }
+  aside { background:var(--surface); border-right:1px solid var(--border); padding:20px; overflow-y:auto; }
+  main { padding:24px; overflow-y:auto; }
+  .card { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; }
+  .card-title { font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+  .card-title .icon { font-size:1rem; }
+  label { display:block; font-size:0.8rem; color:var(--muted); margin-bottom:5px; }
+  input[type=text], input[type=email], input[type=password], input[type=number] {
+    width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text);
+    padding:10px 14px; border-radius:8px; font-size:0.9rem; outline:none; transition:border 0.2s;
+  }
+  input:focus { border-color:var(--accent); }
+  .form-group { margin-bottom:14px; }
+  .toggle-row { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border); }
+  .toggle-row:last-child { border-bottom:none; }
+  .toggle-label { font-size:0.85rem; display:flex; align-items:center; gap:8px; }
+  .toggle-label .dot { width:8px; height:8px; border-radius:50%; background:var(--success); }
+  .toggle-label .dot.off { background:var(--danger); }
+  .switch { position:relative; width:40px; height:22px; flex-shrink:0; }
+  .switch input { opacity:0; width:0; height:0; }
+  .slider { position:absolute; cursor:pointer; top:0;left:0;right:0;bottom:0; background:var(--border); border-radius:22px; transition:0.3s; }
+  .slider:before { position:absolute; content:""; height:16px; width:16px; left:3px; bottom:3px; background:#fff; border-radius:50%; transition:0.3s; }
+  input:checked + .slider { background:var(--accent); }
+  input:checked + .slider:before { transform:translateX(18px); }
+  .btn { display:inline-flex; align-items:center; gap:8px; padding:10px 20px; border-radius:8px; border:none; cursor:pointer; font-weight:600; font-size:0.88rem; transition:all 0.2s; }
+  .btn-primary { background:linear-gradient(135deg,var(--accent),#8b5cf6); color:#fff; }
+  .btn-primary:hover { opacity:0.9; transform:translateY(-1px); box-shadow:0 4px 16px rgba(108,99,255,0.4); }
+  .btn-success { background:linear-gradient(135deg,var(--accent2),#059669); color:#fff; }
+  .btn-success:hover { opacity:0.9; }
+  .btn-full { width:100%; justify-content:center; }
+  .btn:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+  .result-card { background:linear-gradient(135deg,var(--surface2),#1e2235); border:1px solid var(--border); border-radius:var(--radius); padding:24px; margin-bottom:16px; }
+  .eta-display { text-align:center; padding:24px 0; }
+  .eta-days { font-size:3.5rem; font-weight:800; background:linear-gradient(135deg,var(--accent),var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  .eta-label { color:var(--muted); font-size:0.9rem; margin-top:4px; }
+  .eta-date { font-size:1.2rem; font-weight:700; color:var(--accent2); margin-top:8px; }
+  .meta-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px; }
+  .meta-item { background:var(--bg); border-radius:8px; padding:12px; }
+  .meta-key { font-size:0.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; }
+  .meta-val { font-size:0.95rem; font-weight:600; margin-top:4px; }
+  .engine-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:20px; font-size:0.75rem; font-weight:700; }
+  .engine-l1 { background:rgba(34,197,94,0.15); color:var(--success); border:1px solid rgba(34,197,94,0.3); }
+  .engine-l2 { background:rgba(245,166,35,0.15); color:var(--warn); border:1px solid rgba(245,166,35,0.3); }
+  .engine-sim { background:rgba(108,99,255,0.15); color:var(--accent); border:1px solid rgba(108,99,255,0.3); }
+  .log-panel { background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:16px; max-height:280px; overflow-y:auto; font-family:'Courier New',monospace; font-size:0.78rem; }
+  .log-entry { padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.04); display:flex; gap:10px; }
+  .log-time { color:var(--muted); flex-shrink:0; }
+  .log-msg.ok { color:var(--success); }
+  .log-msg.warn { color:var(--warn); }
+  .log-msg.err { color:var(--danger); }
+  .log-msg.info { color:var(--accent2); }
+  .log-msg.muted { color:var(--muted); }
+  .pincode-info { background:var(--bg); border-radius:8px; padding:12px; margin-top:10px; font-size:0.82rem; }
+  .pincode-info .pi-row { display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px solid var(--border); }
+  .pincode-info .pi-row:last-child { border-bottom:none; }
+  .pi-key { color:var(--muted); }
+  .pi-val { font-weight:600; }
+  .progress-bar { height:4px; background:var(--border); border-radius:2px; overflow:hidden; margin:8px 0; }
+  .progress-fill { height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); border-radius:2px; transition:width 0.5s; }
+  .holiday-badges { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .hbadge { background:rgba(245,166,35,0.15); color:var(--warn); border:1px solid rgba(245,166,35,0.3); padding:3px 10px; border-radius:12px; font-size:0.72rem; }
+  .connected-badge { background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); color:var(--success); padding:8px 12px; border-radius:8px; font-size:0.82rem; margin-top:10px; display:none; }
+  .connected-badge.show { display:flex; align-items:center; gap:8px; }
+  .zone-map { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:10px; }
+  .zone-cell { background:var(--bg); border-radius:6px; padding:8px; text-align:center; font-size:0.72rem; }
+  .zone-cell.active { border:1px solid var(--accent); }
+  .zone-num { font-size:1.1rem; font-weight:700; color:var(--accent); }
+  .loading-spin { animation:spin 1s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .tabs { display:flex; gap:4px; margin-bottom:16px; }
+  .tab-btn { padding:8px 16px; border-radius:8px; border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; font-size:0.82rem; transition:all 0.2s; }
+  .tab-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .tab-content { display:none; }
+  .tab-content.active { display:block; }
+  .courier-list { display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+  .courier-item { background:var(--bg); border-radius:8px; padding:12px; display:flex; justify-content:space-between; align-items:center; border:1px solid transparent; transition:border 0.2s; }
+  .courier-item.best { border-color:var(--accent2); }
+  .courier-name { font-weight:600; font-size:0.88rem; }
+  .courier-price { color:var(--accent2); font-weight:700; }
+  .courier-eta { color:var(--muted); font-size:0.78rem; }
+  .best-tag { background:var(--accent2); color:#000; font-size:0.65rem; padding:2px 8px; border-radius:10px; font-weight:700; }
+  @media(max-width:768px) {
+    .app { grid-template-columns:1fr; }
+    aside { display:none; }
+  }
+</style>
+</head><body>
+<div class="app" id="app">
+  <header>
+    <span class="logo">⚡ SwiftETA</span>
+    <span class="version-badge">v2.5</span>
+    <span style="color:var(--muted);font-size:0.85rem;margin-left:8px;">India Delivery Estimate Engine</span>
+    <div class="api-status-row" id="apiStatusRow">
+      <span id="dotPincode" class="api-dot" title="India Post Pincode API"></span>
+      <span id="dotNominatim" class="api-dot" title="Nominatim Geocoder"></span>
+      <span id="dotHolidays" class="api-dot" title="Nager.Date Holidays"></span>
+      <span id="dotShiprocket" class="api-dot off" title="Shiprocket Live API"></span>
+      <span style="color:var(--muted);font-size:0.75rem;margin-left:4px;" id="apiStatusText">Checking APIs...</span>
+    </div>
+  </header>
+
+  <!-- SIDEBAR -->
+  <aside>
+    <!-- Origin -->
+    <div class="card">
+      <div class="card-title"><span class="icon">📦</span> Origin Warehouse</div>
+      <div class="form-group">
+        <label>Origin Pincode</label>
+        <input type="text" id="originPin" value="400001" maxlength="6" placeholder="Mumbai HQ">
+      </div>
+      <div id="originInfo" class="pincode-info" style="display:none;"></div>
+    </div>
+
+    <!-- Destination -->
+    <div class="card">
+      <div class="card-title"><span class="icon">🎯</span> Destination</div>
+      <div class="form-group">
+        <label>Destination Pincode</label>
+        <input type="text" id="destPin" maxlength="6" placeholder="e.g. 110001">
+      </div>
+      <div id="destInfo" class="pincode-info" style="display:none;"></div>
+      <div class="form-group" style="margin-top:12px;">
+        <label>Weight (kg)</label>
+        <input type="number" id="weight" value="0.5" min="0.1" max="50" step="0.1">
+      </div>
+      <div class="form-group">
+        <label>Parcel Value (₹)</label>
+        <input type="number" id="parcelValue" value="500" min="1">
+      </div>
+      <button class="btn btn-primary btn-full" id="calculateBtn" onclick="runETA()">
+        <span id="calcBtnIcon">⚡</span> <span id="calcBtnText">Calculate ETA</span>
+      </button>
+    </div>
+
+    <!-- API Toggles -->
+    <div class="card">
+      <div class="card-title"><span class="icon">🔌</span> Courier API Simulation</div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="dot" id="dotSR"></span> Shiprocket</span>
+        <label class="switch"><input type="checkbox" id="togSR" checked onchange="onToggle()"><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="dot" id="dotNP"></span> NimbusPost</span>
+        <label class="switch"><input type="checkbox" id="togNP" checked onchange="onToggle()"><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="dot" id="dotDL"></span> Delhivery</span>
+        <label class="switch"><input type="checkbox" id="togDL" checked onchange="onToggle()"><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="dot" id="dotExpress"></span> Express Mode</span>
+        <label class="switch"><input type="checkbox" id="togExpress" onchange="onToggle()"><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="dot" id="dotCOD"></span> COD</span>
+        <label class="switch"><input type="checkbox" id="togCOD" onchange="onToggle()"><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <!-- Live Shiprocket -->
+    <div class="card" style="border-color:rgba(108,99,255,0.4);">
+      <div class="card-title"><span class="icon">🛡️</span> Live Shiprocket Integration <span style="background:rgba(108,99,255,0.2);color:var(--accent);font-size:0.65rem;padding:2px 8px;border-radius:10px;margin-left:4px;">Level 1 Direct</span></div>
+      <div class="form-group">
+        <label>Shiprocket Account Email</label>
+        <input type="email" id="srEmail" placeholder="your@email.com">
+      </div>
+      <div class="form-group">
+        <label>Shiprocket Password</label>
+        <input type="password" id="srPassword" placeholder="••••••••">
+      </div>
+      <button class="btn btn-success btn-full" id="srAuthBtn" onclick="authenticateShiprocket()">
+        <span id="srAuthIcon">⚡</span> Sync Real Shiprocket API
+      </button>
+      <div class="connected-badge" id="connectedBadge">
+        <span>✓</span> Connected to Production. Real checks active.
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('results')">📊 ETA Results</button>
+      <button class="tab-btn" onclick="switchTab('couriers')">🚚 Courier Comparison</button>
+      <button class="tab-btn" onclick="switchTab('map')">🗺️ Zone Map</button>
+      <button class="tab-btn" onclick="switchTab('holidays')">📅 Holidays</button>
+      <button class="tab-btn" onclick="switchTab('docs')">📖 API Docs</button>
+    </div>
+
+    <!-- Results Tab -->
+    <div id="tab-results" class="tab-content active">
+      <div class="result-card" id="resultCard">
+        <div id="placeholderMsg" style="text-align:center;padding:40px;color:var(--muted);">
+          <div style="font-size:3rem;margin-bottom:12px;">📦</div>
+          <div style="font-size:1.1rem;font-weight:600;">Enter a destination pincode to estimate delivery</div>
+          <div style="font-size:0.85rem;margin-top:8px;">Multi-level engine: Live Shiprocket → Simulated APIs → Haversine fallback</div>
+        </div>
+        <div id="etaResult" style="display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div style="font-size:1rem;font-weight:700;">Delivery Estimate</div>
+            <span id="engineBadge" class="engine-badge engine-sim">Simulator</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+          <div class="eta-display">
+            <div class="eta-days" id="etaDays">-</div>
+            <div class="eta-label">Estimated Business Days</div>
+            <div class="eta-date" id="etaDate">-</div>
+          </div>
+          <div class="meta-grid">
+            <div class="meta-item">
+              <div class="meta-key">Carrier</div>
+              <div class="meta-val" id="mCarrier">-</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-key">Shipping Rate</div>
+              <div class="meta-val" id="mRate">-</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-key">Zone</div>
+              <div class="meta-val" id="mZone">-</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-key">Distance</div>
+              <div class="meta-val" id="mDist">-</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-key">Origin</div>
+              <div class="meta-val" id="mOrigin">-</div>
+            </div>
+            <div class="meta-item">
+              <div class="meta-key">Destination</div>
+              <div class="meta-val" id="mDest">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><span class="icon">📟</span> Live Engine Log</div>
+        <div class="log-panel" id="logPanel"></div>
+      </div>
+    </div>
+
+    <!-- Courier Comparison Tab -->
+    <div id="tab-couriers" class="tab-content">
+      <div class="card">
+        <div class="card-title"><span class="icon">🚚</span> Courier Comparison</div>
+        <div id="courierList" class="courier-list">
+          <div style="color:var(--muted);text-align:center;padding:24px;">Run ETA calculation to see courier options</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Zone Map Tab -->
+    <div id="tab-map" class="tab-content">
+      <div class="card">
+        <div class="card-title"><span class="icon">🗺️</span> Delivery Zone Classification</div>
+        <p style="color:var(--muted);font-size:0.85rem;margin-bottom:16px;">Zone is determined by Haversine distance from origin to destination pincode.</p>
+        <div class="zone-map" id="zoneMap"></div>
+        <div style="margin-top:16px;">
+          <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+            <thead><tr style="color:var(--muted);">
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);">Zone</th>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);">Distance</th>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);">Business Days</th>
+              <th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);">Base Rate (0.5kg)</th>
+            </tr></thead>
+            <tbody id="zoneTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Holidays Tab -->
+    <div id="tab-holidays" class="tab-content">
+      <div class="card">
+        <div class="card-title"><span class="icon">📅</span> India Public Holidays 2026</div>
+        <p style="color:var(--muted);font-size:0.82rem;margin-bottom:12px;">Loaded from Nager.Date free API. These days are excluded from ETA calculations.</p>
+        <div id="holidayList" class="holiday-badges"></div>
+      </div>
+    </div>
+
+    <!-- API Docs Tab -->
+    <div id="tab-docs" class="tab-content">
+      <div class="card">
+        <div class="card-title"><span class="icon">📖</span> API Integration Reference</div>
+        <div id="docsContent" style="font-size:0.85rem;line-height:1.7;"></div>
+      </div>
+    </div>
+  </main>
+</div><script>
+// ============================================================
+// SwiftETA v2.5 — Core Engine
+// ============================================================
+
+// --- Constants ---
+const ORIGIN_DEFAULT = '400001';
+let shiprocketToken = null;
+let holidays = [];
+let originGeo = null;
+let destGeo = null;
+let pincodeCache = {};
+
+// Zone definitions
+const ZONES = [
+  { zone: 1, label: 'Local', maxKm: 50,   days: 1, baseRate: 35 },
+  { zone: 2, label: 'Zonal', maxKm: 200,  days: 2, baseRate: 50 },
+  { zone: 3, label: 'Regional', maxKm: 500,  days: 3, baseRate: 70 },
+  { zone: 4, label: 'Metro', maxKm: 1000, days: 4, baseRate: 95 },
+  { zone: 5, label: 'National', maxKm: 2000, days: 5, baseRate: 120 },
+  { zone: 6, label: 'Remote', maxKm: Infinity, days: 7, baseRate: 150 },
+];
+
+// Simulated courier providers
+const COURIER_SIMS = [
+  { name: 'Delhivery', rateMultiplier: 1.0, daysOffset: 0, logo: '🔵' },
+  { name: 'BlueDart',  rateMultiplier: 1.3, daysOffset: -1, logo: '🔴' },
+  { name: 'DTDC',      rateMultiplier: 0.85, daysOffset: 1, logo: '🟡' },
+  { name: 'Ekart',     rateMultiplier: 0.9,  daysOffset: 0, logo: '🟢' },
+  { name: 'Xpressbees',rateMultiplier: 0.95, daysOffset: 0, logo: '🟠' },
+];
+
+// --- Logging ---
+function log(msg, type='info') {
+  const panel = document.getElementById('logPanel');
+  const now = new Date().toLocaleTimeString('en-IN', {hour12:false});
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = '<span class="log-time">' + now + '</span><span class="log-msg ' + type + '">' + msg + '</span>';
+  panel.insertBefore(entry, panel.firstChild);
+  if (panel.children.length > 80) panel.removeChild(panel.lastChild);
+}
+
+// --- Haversine Distance ---
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+// --- Zone by Distance ---
+function zoneByDist(km) {
+  return ZONES.find(z => km <= z.maxKm) || ZONES[ZONES.length-1];
+}
+
+// --- Add Business Days (skips weekends + holidays) ---
+function addBusinessDays(date, days) {
+  let d = new Date(date);
+  let added = 0;
+  while (added < days) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    const ds = d.toISOString().split('T')[0];
+    if (dow !== 0 && dow !== 6 && !holidays.includes(ds)) added++;
+  }
+  return d;
+}
+
+// --- India Post Pincode API ---
+async function fetchPincodeInfo(pin) {
+  if (pincodeCache[pin]) return pincodeCache[pin];
+  try {
+    log('📮 Fetching pincode info: ' + pin + ' (India Post API)', 'info');
+    const resp = await fetch('https://api.postalpincode.in/pincode/' + pin);
+    const data = await resp.json();
+    if (data[0]?.Status === 'Success' && data[0].PostOffice?.length) {
+      const po = data[0].PostOffice[0];
+      const info = { district: po.District, state: po.State, circle: po.Circle, name: po.Name };
+      pincodeCache[pin] = info;
+      log('✓ Pincode ' + pin + ' → ' + po.District + ', ' + po.State, 'ok');
+      return info;
+    }
+  } catch(e) {
+    log('⚠ India Post API error: ' + e.message, 'warn');
+  }
+  return null;
+}
+
+// --- OpenStreetMap Nominatim Geocoding ---
+async function geocodePin(pin) {
+  try {
+    log('🗺 Geocoding pincode ' + pin + ' (Nominatim/OSM)', 'info');
+    const url = 'https://nominatim.openstreetmap.org/search?postalcode=' + pin + '&country=India&format=json&limit=1';
+    const resp = await fetch(url, { headers: { 'Accept-Language': 'en', 'User-Agent': 'SwiftETA/2.5' } });
+    const results = await resp.json();
+    if (results?.length) {
+      const { lat, lon } = results[0];
+      log('✓ Geocoded ' + pin + ' → (' + parseFloat(lat).toFixed(4) + ', ' + parseFloat(lon).toFixed(4) + ')', 'ok');
+      return { lat: parseFloat(lat), lon: parseFloat(lon) };
+    }
+  } catch(e) {
+    log('⚠ Nominatim error: ' + e.message, 'warn');
+  }
+  return null;
+}
+
+// --- Shiprocket Authentication ---
+async function authenticateShiprocket() {
+  const email = document.getElementById('srEmail').value.trim();
+  const password = document.getElementById('srPassword').value.trim();
+  if (!email || !password) { log('⚠ Enter Shiprocket email & password first.', 'warn'); return; }
+
+  const btn = document.getElementById('srAuthBtn');
+  const icon = document.getElementById('srAuthIcon');
+  btn.disabled = true;
+  icon.textContent = '⏳';
+  log('🔐 Authenticating with Shiprocket Live API...', 'info');
+
+  try {
+    const resp = await fetch('https://apiv2.shiprocket.in/v1/external/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await resp.json();
+    if (data.token) {
+      shiprocketToken = data.token;
+      document.getElementById('connectedBadge').classList.add('show');
+      document.getElementById('dotShiprocket').classList.remove('off');
+      document.getElementById('dotShiprocket').style.background = 'var(--success)';
+      log('✓ Shiprocket authenticated! Token secured. Real serviceability checks active.', 'ok');
+      icon.textContent = '✓';
+      btn.style.background = 'linear-gradient(135deg,var(--success),#059669)';
+    } else {
+      throw new Error(data.message || 'Authentication failed');
+    }
+  } catch(e) {
+    log('✗ Shiprocket auth failed: ' + e.message + ' — falling back to simulator', 'err');
+    icon.textContent = '⚡';
+    btn.disabled = false;
+  }
+  btn.disabled = false;
+}
+
+// --- Real Shiprocket Serviceability ---
+async function fetchShiprocketServiceability(originPin, destPin, weight) {
+  if (!shiprocketToken) return null;
+  try {
+    log('🛡 Calling Shiprocket serviceability API (Level 1)...', 'info');
+    const params = new URLSearchParams({
+      pickup_postcode: originPin,
+      delivery_postcode: destPin,
+      weight: weight.toString(),
+      cod: document.getElementById('togCOD').checked ? '1' : '0'
+    });
+    const resp = await fetch('https://apiv2.shiprocket.in/v1/external/courier/serviceability?' + params, {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer ' + shiprocketToken }
+    });
+    const data = await resp.json();
+    if (data?.data?.available_courier_companies?.length) {
+      const couriers = data.data.available_courier_companies;
+      const best = couriers.sort((a,b) => (a.rate||999)-(b.rate||999))[0];
+      log('✓ Shiprocket L1: ' + best.courier_name + ' | ETA: ' + best.estimated_delivery_days + 'd | ₹' + best.rate, 'ok');
+      return { carrier: best.courier_name, days: parseInt(best.estimated_delivery_days)||3, rate: best.rate, engine: 'L1-Shiprocket', raw: couriers };
+    }
+  } catch(e) {
+    log('⚠ Shiprocket serviceability error: ' + e.message, 'warn');
+  }
+  return null;
+}
+
+// --- Simulated Carrier APIs ---
+function simulateCarriers(zone, weight, express) {
+  const cod = document.getElementById('togCOD').checked;
+  const togSR = document.getElementById('togSR').checked;
+  const togNP = document.getElementById('togNP').checked;
+  const togDL = document.getElementById('togDL').checked;
+
+  let results = [];
+  const base = zone.baseRate + (weight * 20);
+  const expMult = express ? 1.6 : 1;
+  const codCharge = cod ? 30 : 0;
+
+  if (togSR) {
+    results.push({ name:'Shiprocket (sim)', days: Math.max(1, zone.days + (express?-1:0)), rate: Math.round((base * 1.05 + codCharge) * expMult), engine:'sim-SR' });
+    log('↪ Shiprocket (sim): OK', 'muted');
+  } else { log('↪ Shiprocket: OFFLINE (toggle)', 'warn'); }
+
+  if (togNP) {
+    results.push({ name:'NimbusPost (sim)', days: Math.max(1, zone.days + (express?-1:0)), rate: Math.round((base * 0.95 + codCharge) * expMult), engine:'sim-NP' });
+    log('↪ NimbusPost (sim): OK', 'muted');
+  } else { log('↪ NimbusPost: OFFLINE (toggle)', 'warn'); }
+
+  if (togDL) {
+    results.push({ name:'Delhivery (sim)', days: Math.max(1, zone.days + (express?-1:0)), rate: Math.round((base + codCharge) * expMult), engine:'sim-DL' });
+    log('↪ Delhivery (sim): OK', 'muted');
+  } else { log('↪ Delhivery: OFFLINE (toggle)', 'warn'); }
+
+  return results;
+}
+
+// --- Main ETA Function ---
+async function runETA() {
+  const destPin = document.getElementById('destPin').value.trim();
+  const originPin = document.getElementById('originPin').value.trim() || ORIGIN_DEFAULT;
+  const weight = parseFloat(document.getElementById('weight').value) || 0.5;
+  const express = document.getElementById('togExpress').checked;
+
+  if (!/^[1-9][0-9]{5}$/.test(destPin)) {
+    log('✗ Invalid destination pincode. Must be 6 digits.', 'err');
+    return;
+  }
+  if (!/^[1-9][0-9]{5}$/.test(originPin)) {
+    log('✗ Invalid origin pincode.', 'err');
+    return;
+  }
+
+  const btn = document.getElementById('calculateBtn');
+  const icon = document.getElementById('calcBtnIcon');
+  const txt = document.getElementById('calcBtnText');
+  btn.disabled = true;
+  icon.innerHTML = '<span class="loading-spin">⏳</span>';
+  txt.textContent = 'Calculating...';
+
+  document.getElementById('placeholderMsg').style.display = 'none';
+  document.getElementById('etaResult').style.display = 'block';
+  document.getElementById('progressFill').style.width = '10%';
+
+  log('═══ SwiftETA Engine Started ═══', 'info');
+  log('Origin: ' + originPin + ' → Destination: ' + destPin, 'info');
+  log('Weight: ' + weight + 'kg | Express: ' + express, 'muted');
+
+  // Step 1: Fetch pincode metadata
+  const [originInfo, destInfo] = await Promise.all([
+    fetchPincodeInfo(originPin),
+    fetchPincodeInfo(destPin)
+  ]);
+  document.getElementById('progressFill').style.width = '25%';
+
+  // Show pincode info panels
+  if (originInfo) showPincodePanel('originInfo', originInfo);
+  if (destInfo) showPincodePanel('destInfo', destInfo);
+
+  // Step 2: Geocode both pincodes
+  const [oGeo, dGeo] = await Promise.all([
+    geocodePin(originPin),
+    geocodePin(destPin)
+  ]);
+  document.getElementById('progressFill').style.width = '50%';
+
+  let distKm = null;
+  let zone = ZONES[3]; // default Zone 4
+
+  if (oGeo && dGeo) {
+    distKm = Math.round(haversine(oGeo.lat, oGeo.lon, dGeo.lat, dGeo.lon));
+    zone = zoneByDist(distKm);
+    log('📏 Haversine distance: ' + distKm + ' km → Zone ' + zone.zone + ' (' + zone.label + ')', 'ok');
+  } else {
+    log('⚠ Could not geocode. Using pin prefix zone estimation.', 'warn');
+    // Fallback: estimate zone by first digit difference
+    const zDiff = Math.abs(parseInt(originPin[0]) - parseInt(destPin[0]));
+    zone = ZONES[Math.min(zDiff, 5)];
+    log('↪ Estimated Zone ' + zone.zone + ' by prefix diff=' + zDiff, 'muted');
+  }
+
+  document.getElementById('progressFill').style.width = '65%';
+
+  // Step 3: Try real Shiprocket API (Level 1)
+  let liveResult = null;
+  if (shiprocketToken) {
+    liveResult = await fetchShiprocketServiceability(originPin, destPin, weight);
+  } else {
+    log('ℹ Shiprocket not authenticated — using simulation. Add credentials for live data.', 'muted');
+  }
+
+  document.getElementById('progressFill').style.width = '80%';
+
+  // Step 4: Simulated carriers (Level 2)
+  const simResults = simulateCarriers(zone, weight, express);
+
+  document.getElementById('progressFill').style.width = '95%';
+
+  // Step 5: Pick best result
+  let finalResult;
+  if (liveResult) {
+    finalResult = { ...liveResult, engine: 'L1-Shiprocket-Live' };
+  } else if (simResults.length > 0) {
+    const best = simResults.sort((a,b)=>a.rate-b.rate)[0];
+    finalResult = { carrier: best.name, days: best.days, rate: best.rate, engine: 'L2-Simulation', zone: zone.zone };
+  } else {
+    log('⚠ All APIs offline. Using Haversine-only fallback.', 'warn');
+    finalResult = {
+      carrier: 'Haversine Fallback',
+      days: zone.days,
+      rate: zone.baseRate + Math.round(weight * 20),
+      engine: 'L3-Haversine',
+      zone: zone.zone
+    };
+  }
+
+  // Adjust for express
+  if (express && finalResult.days > 1) {
+    finalResult.days = Math.max(1, finalResult.days - 1);
+    finalResult.rate = Math.round(finalResult.rate * 1.6);
+    log('⚡ Express mode: -1 day, +60% rate', 'info');
+  }
+
+  // Calculate delivery date
+  const deliveryDate = addBusinessDays(new Date(), finalResult.days);
+  const dateStr = deliveryDate.toLocaleDateString('en-IN', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+  document.getElementById('progressFill').style.width = '100%';
+
+  // Render results
+  document.getElementById('etaDays').textContent = finalResult.days + (finalResult.days===1?' Day':' Days');
+  document.getElementById('etaDate').textContent = 'By ' + dateStr;
+  document.getElementById('mCarrier').textContent = finalResult.carrier;
+  document.getElementById('mRate').textContent = '₹' + (finalResult.rate||'--');
+  document.getElementById('mZone').textContent = 'Zone ' + (finalResult.zone||zone.zone) + ' — ' + zone.label;
+  document.getElementById('mDist').textContent = distKm ? distKm + ' km' : 'N/A';
+  document.getElementById('mOrigin').textContent = originInfo ? (originInfo.district||originPin) : originPin;
+  document.getElementById('mDest').textContent = destInfo ? (destInfo.district||destPin) : destPin;
+
+  // Engine badge
+  const badge = document.getElementById('engineBadge');
+  if (finalResult.engine.includes('L1')) {
+    badge.textContent = '⚡ L1 — Shiprocket Live';
+    badge.className = 'engine-badge engine-l1';
+  } else if (finalResult.engine.includes('L2')) {
+    badge.textContent = '🔄 L2 — Simulation';
+    badge.className = 'engine-badge engine-l2';
+  } else {
+    badge.textContent = '📐 L3 — Haversine';
+    badge.className = 'engine-badge engine-sim';
+  }
+
+  log('═══ ETA Result: ' + finalResult.days + ' days via ' + finalResult.carrier + ' | ₹' + finalResult.rate + ' ═══', 'ok');
+
+  // Update courier comparison tab
+  renderCourierComparison(simResults, liveResult, zone, weight, express);
+
+  // Highlight active zone
+  renderZoneMap(zone.zone);
+
+  btn.disabled = false;
+  icon.textContent = '⚡';
+  txt.textContent = 'Calculate ETA';
+}
+
+function showPincodePanel(elId, info) {
+  const el = document.getElementById(elId);
+  el.style.display = 'block';
+  el.innerHTML = ['District','State','Circle'].map(k => 
+    '<div class="pi-row"><span class="pi-key">' + k + '</span><span class="pi-val">' + (info[k.toLowerCase()]||'—') + '</span></div>'
+  ).join('');
+}
+
+function renderCourierComparison(simResults, liveResult, zone, weight, express) {
+  const list = document.getElementById('courierList');
+  let allCouriers = [];
+  
+  if (liveResult?.raw) {
+    allCouriers = liveResult.raw.slice(0,8).map(c => ({
+      name: c.courier_name,
+      days: parseInt(c.estimated_delivery_days)||zone.days,
+      rate: c.rate,
+      live: true
+    }));
+  }
+
+  COURIER_SIMS.forEach(cs => {
+    const base = zone.baseRate + weight*20;
+    const expM = express ? 1.6 : 1;
+    allCouriers.push({
+      name: cs.logo + ' ' + cs.name,
+      days: Math.max(1, zone.days + cs.daysOffset + (express?-1:0)),
+      rate: Math.round(base * cs.rateMultiplier * expM + (document.getElementById('togCOD').checked?30:0)),
+      live: false
+    });
+  });
+
+  allCouriers.sort((a,b)=>a.rate-b.rate);
+  const best = allCouriers[0];
+
+  list.innerHTML = allCouriers.map((c,i) => 
+    '<div class="courier-item' + (i===0?' best':'') + '">' +
+    '<div><div class="courier-name">' + c.name + (c.live?' <span style="font-size:0.65rem;background:rgba(34,197,94,0.2);color:var(--success);padding:1px 6px;border-radius:8px;">LIVE</span>':'') + '</div>' +
+    '<div class="courier-eta">' + c.days + ' business day' + (c.days!==1?'s':'') + '</div></div>' +
+    '<div style="text-align:right"><div class="courier-price">₹' + c.rate + '</div>' + (i===0?'<div class="best-tag">BEST PRICE</div>':'') + '</div></div>'
+  ).join('');
+}
+
+function renderZoneMap(activeZone) {
+  const map = document.getElementById('zoneMap');
+  const table = document.getElementById('zoneTable');
+  map.innerHTML = ZONES.map(z =>
+    '<div class="zone-cell' + (z.zone===activeZone?' active':'') + '">' +
+    '<div class="zone-num">Z' + z.zone + '</div>' +
+    '<div style="font-size:0.7rem;color:var(--muted);">' + z.label + '</div>' +
+    '<div style="font-size:0.7rem;">' + (z.maxKm===Infinity?'>2000':z.maxKm) + 'km</div></div>'
+  ).join('');
+  table.innerHTML = ZONES.map(z =>
+    '<tr style="' + (z.zone===activeZone?'background:rgba(108,99,255,0.1);':'') + '">' +
+    '<td style="padding:8px;border-bottom:1px solid var(--border);">Zone ' + z.zone + ' — ' + z.label + '</td>' +
+    '<td style="padding:8px;border-bottom:1px solid var(--border);">≤' + (z.maxKm===Infinity?'∞':z.maxKm) + ' km</td>' +
+    '<td style="padding:8px;border-bottom:1px solid var(--border);">' + z.days + '</td>' +
+    '<td style="padding:8px;border-bottom:1px solid var(--border);">₹' + z.baseRate + '</td></tr>'
+  ).join('');
+}
+
+function onToggle() {
+  const ids = ['togSR','togNP','togDL','togExpress','togCOD'];
+  const dotIds = ['dotSR','dotNP','dotDL','dotExpress','dotCOD'];
+  ids.forEach((id,i) => {
+    const dot = document.getElementById(dotIds[i]);
+    if (dot) dot.className = 'dot' + (document.getElementById(id).checked?'':' off');
+  });
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// --- Load Holidays from Nager.Date ---
+async function loadHolidays() {
+  try {
+    log('📅 Loading India public holidays 2026 (Nager.Date API)...', 'info');
+    const resp = await fetch('https://date.nager.at/api/v3/PublicHolidays/2026/IN');
+    const data = await resp.json();
+    holidays = data.map(h => h.date);
+    const badge = document.getElementById('dotHolidays');
+    badge.style.background = 'var(--success)';
+    log('✓ Loaded ' + holidays.length + ' public holidays for 2026', 'ok');
+    renderHolidays(data);
+  } catch(e) {
+    log('⚠ Holiday API unavailable: ' + e.message, 'warn');
+    document.getElementById('dotHolidays').className = 'api-dot warn';
+  }
+}
+
+function renderHolidays(data) {
+  const el = document.getElementById('holidayList');
+  el.innerHTML = data.map(h =>
+    '<span class="hbadge">' + h.localName + ' — ' + h.date + '</span>'
+  ).join('');
+}
+
+// --- Load Docs Tab ---
+function renderDocs() {
+  const el = document.getElementById('docsContent');
+  el.innerHTML = '<div style="display:grid;gap:16px;">' +
+  renderApiCard('🛡️ Shiprocket (Level 1 — Real API)', 'Paid with free trial (500 shipments)', [
+    'Auth: POST https://apiv2.shiprocket.in/v1/external/auth/login',
+    'Serviceability: GET https://apiv2.shiprocket.in/v1/external/courier/serviceability',
+    'Register: app.shiprocket.in → use email/password directly'
+  ]) +
+  renderApiCard('📮 India Post Pincode API (FREE)', 'No API key required', [
+    'GET https://api.postalpincode.in/pincode/{PIN}',
+    'Returns: District, State, Circle, PostOffice name',
+    'No rate limit specified — use responsibly'
+  ]) +
+  renderApiCard('🗺️ OpenStreetMap Nominatim (FREE)', 'No API key — fair use policy', [
+    'GET https://nominatim.openstreetmap.org/search?postalcode={PIN}&country=India&format=json',
+    'Returns: lat, lon, display_name',
+    'Max 1 req/sec — used for Haversine distance calculation'
+  ]) +
+  renderApiCard('📅 Nager.Date Holidays (FREE)', 'No API key required', [
+    'GET https://date.nager.at/api/v3/PublicHolidays/2026/IN',
+    'Returns: date, name, localName for all Indian public holidays',
+    'Used to skip holidays in business-day ETA calculation'
+  ]) +
+  renderApiCard('📦 NimbusPost (Activate with credentials)', 'Free tier available', [
+    'Auth: POST https://api.nimbuspost.com/v1/users/login',
+    'Serviceability: POST https://api.nimbuspost.com/v1/courier/serviceability',
+    'Register: nimbuspost.com → Dashboard → API Credentials'
+  ]) +
+  renderApiCard('🚛 Delhivery (Partner onboarding)', 'Post KYC API token', [
+    'Register: delhivery.com/business',
+    'API token issued after KYC verification',
+    'Enterprise-grade courier API'
+  ]) + '</div>';
+}
+
+function renderApiCard(title, subtitle, items) {
+  return '<div style="background:var(--bg);border-radius:8px;padding:16px;border:1px solid var(--border);">' +
+    '<div style="font-weight:700;margin-bottom:4px;">' + title + '</div>' +
+    '<div style="color:var(--accent2);font-size:0.78rem;margin-bottom:10px;">' + subtitle + '</div>' +
+    items.map(i => '<div style="color:var(--muted);font-size:0.8rem;padding:3px 0;border-bottom:1px solid var(--border);">→ ' + i + '</div>').join('') +
+    '</div>';
+}
+
+// --- API Health Check ---
+async function checkAPIs() {
+  const statusText = document.getElementById('apiStatusText');
+  statusText.textContent = 'Checking APIs...';
+
+  // Check India Post Pincode API
+  try {
+    const r = await fetch('https://api.postalpincode.in/pincode/400001');
+    const d = await r.json();
+    if (d[0]?.Status === 'Success') {
+      document.getElementById('dotPincode').style.background = 'var(--success)';
+      log('✓ India Post Pincode API: Online', 'ok');
+    }
+  } catch(e) {
+    document.getElementById('dotPincode').style.background = 'var(--warn)';
+    log('⚠ India Post API: ' + e.message, 'warn');
+  }
+
+  // Check Nominatim
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?postalcode=400001&country=India&format=json&limit=1', {headers:{'User-Agent':'SwiftETA/2.5'}});
+    const d = await r.json();
+    if (d?.length) {
+      document.getElementById('dotNominatim').style.background = 'var(--success)';
+      log('✓ Nominatim Geocoder: Online', 'ok');
+    }
+  } catch(e) {
+    document.getElementById('dotNominatim').style.background = 'var(--warn)';
+    log('⚠ Nominatim: ' + e.message, 'warn');
+  }
+
+  statusText.textContent = 'APIs Ready';
+}
+
+// --- Pincode input auto-lookup ---
+document.getElementById('destPin').addEventListener('input', function() {
+  const pin = this.value.trim();
+  if (/^[1-9][0-9]{5}$/.test(pin)) {
+    fetchPincodeInfo(pin).then(info => { if(info) showPincodePanel('destInfo', info); });
+  } else {
+    document.getElementById('destInfo').style.display = 'none';
+  }
+});
+
+document.getElementById('originPin').addEventListener('input', function() {
+  const pin = this.value.trim();
+  if (/^[1-9][0-9]{5}$/.test(pin)) {
+    fetchPincodeInfo(pin).then(info => { if(info) showPincodePanel('originInfo', info); });
+  } else {
+    document.getElementById('originInfo').style.display = 'none';
+  }
+});
+
+// Enter key trigger
+document.getElementById('destPin').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') runETA();
+});
+
+// --- Init ---
+window.addEventListener('DOMContentLoaded', async () => {
+  renderZoneMap(null);
+  renderDocs();
+  await loadHolidays();
+  await checkAPIs();
+  // Pre-load origin pincode info
+  fetchPincodeInfo(document.getElementById('originPin').value).then(info => {
+    if (info) showPincodePanel('originInfo', info);
+  });
+  log('🚀 SwiftETA v2.5 initialized. Enter destination pincode to begin.', 'ok');
+});
+</script>
+</body>
+</html>
