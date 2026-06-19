@@ -322,34 +322,53 @@
   </main>
 </div><script>
 // ============================================================
-// SwiftETA v2.5 — Core Engine
+// SwiftETA v2.5 — Core Engine (Phase C: latency fixes)
 // ============================================================
 
 // --- Constants ---
 const ORIGIN_DEFAULT = '400001';
 let shiprocketToken = null;
 let holidays = [];
-let originGeo = null;
-let destGeo = null;
 let pincodeCache = {};
+
+// Fixed-origin coordinates (never geocoded per request)
+const ORIGIN_GEO_CACHE = {
+  '400001': { lat: 18.9220, lon: 72.8347 }, // Mumbai
+  '560001': { lat: 12.9716, lon: 77.5946 }, // Bengaluru
+};
+
+// Local pincode DB for instant geocoding without network (C2)
+const LOCAL_PINCODE_DB = {
+  '560001':{ lat:12.9716, lon:77.5946 }, '560066':{ lat:12.9698, lon:77.7500 },
+  '560034':{ lat:12.9338, lon:77.6244 }, '560038':{ lat:12.9719, lon:77.6412 },
+  '560100':{ lat:12.8452, lon:77.6760 }, '570001':{ lat:12.3087, lon:76.6547 },
+  '110001':{ lat:28.6139, lon:77.2090 }, '400001':{ lat:18.9220, lon:72.8347 },
+  '700001':{ lat:22.5726, lon:88.3639 }, '600001':{ lat:13.0827, lon:80.2707 },
+  '500001':{ lat:17.3850, lon:78.4867 }, '302001':{ lat:26.9124, lon:75.7873 },
+  '799001':{ lat:23.8315, lon:91.2868 }, '190001':{ lat:34.0837, lon:74.7973 },
+};
+
+// localStorage geocode cache key prefix (C2)
+const GEO_LS_PREFIX = 'swifteta_geo_';
+const GEO_LS_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // Zone definitions
 const ZONES = [
-  { zone: 1, label: 'Local', maxKm: 50,   days: 1, baseRate: 35 },
-  { zone: 2, label: 'Zonal', maxKm: 200,  days: 2, baseRate: 50 },
-  { zone: 3, label: 'Regional', maxKm: 500,  days: 3, baseRate: 70 },
-  { zone: 4, label: 'Metro', maxKm: 1000, days: 4, baseRate: 95 },
-  { zone: 5, label: 'National', maxKm: 2000, days: 5, baseRate: 120 },
-  { zone: 6, label: 'Remote', maxKm: Infinity, days: 7, baseRate: 150 },
+  { zone: 1, label: 'Local',    maxKm: 50,       days: 1, baseRate: 35 },
+  { zone: 2, label: 'Zonal',   maxKm: 200,      days: 2, baseRate: 50 },
+  { zone: 3, label: 'Regional',maxKm: 500,      days: 3, baseRate: 70 },
+  { zone: 4, label: 'Metro',   maxKm: 1000,     days: 4, baseRate: 95 },
+  { zone: 5, label: 'National',maxKm: 2000,     days: 5, baseRate: 120 },
+  { zone: 6, label: 'Remote',  maxKm: Infinity, days: 7, baseRate: 150 },
 ];
 
 // Simulated courier providers
 const COURIER_SIMS = [
-  { name: 'Delhivery', rateMultiplier: 1.0, daysOffset: 0, logo: '🔵' },
-  { name: 'BlueDart',  rateMultiplier: 1.3, daysOffset: -1, logo: '🔴' },
-  { name: 'DTDC',      rateMultiplier: 0.85, daysOffset: 1, logo: '🟡' },
-  { name: 'Ekart',     rateMultiplier: 0.9,  daysOffset: 0, logo: '🟢' },
-  { name: 'Xpressbees',rateMultiplier: 0.95, daysOffset: 0, logo: '🟠' },
+  { name: 'Delhivery',   rateMultiplier: 1.0,  daysOffset: 0,  logo: '🔵' },
+  { name: 'BlueDart',    rateMultiplier: 1.3,  daysOffset: -1, logo: '🔴' },
+  { name: 'DTDC',        rateMultiplier: 0.85, daysOffset: 1,  logo: '🟡' },
+  { name: 'Ekart',       rateMultiplier: 0.9,  daysOffset: 0,  logo: '🟢' },
+  { name: 'Xpressbees', rateMultiplier: 0.95, daysOffset: 0,  logo: '🟠' },
 ];
 
 // --- Logging ---
@@ -390,40 +409,75 @@ function addBusinessDays(date, days) {
   return d;
 }
 
+// C3: AbortController fetch wrapper with 2.5s timeout
+async function fetchWithTimeout(url, opts, ms=2500) {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const resp = await fetch(url, { ...opts, signal: ctrl.signal });
+    clearTimeout(tid);
+    return resp;
+  } catch(e) {
+    clearTimeout(tid);
+    if (e.name === 'AbortError') throw new Error('timeout');
+    throw e;
+  }
+}
+
 // --- India Post Pincode API ---
 async function fetchPincodeInfo(pin) {
   if (pincodeCache[pin]) return pincodeCache[pin];
   try {
-    log('📮 Fetching pincode info: ' + pin + ' (India Post API)', 'info');
-    const resp = await fetch('https://api.postalpincode.in/pincode/' + pin);
+    log('Fetching pincode info: ' + pin + ' (India Post API)', 'info');
+    const resp = await fetchWithTimeout('https://api.postalpincode.in/pincode/' + pin, {});
     const data = await resp.json();
     if (data[0]?.Status === 'Success' && data[0].PostOffice?.length) {
       const po = data[0].PostOffice[0];
       const info = { district: po.District, state: po.State, circle: po.Circle, name: po.Name };
       pincodeCache[pin] = info;
-      log('✓ Pincode ' + pin + ' → ' + po.District + ', ' + po.State, 'ok');
+      log('Pincode ' + pin + ' => ' + po.District + ', ' + po.State, 'ok');
       return info;
     }
   } catch(e) {
-    log('⚠ India Post API error: ' + e.message, 'warn');
+    log('India Post API ' + (e.message==='timeout'?'timed out':('error: '+e.message)), 'warn');
   }
   return null;
 }
 
-// --- OpenStreetMap Nominatim Geocoding ---
+// C2: geocodePin - local DB -> localStorage -> Nominatim (no User-Agent header)
 async function geocodePin(pin) {
+  // 1. Fixed-origin shortcut
+  if (ORIGIN_GEO_CACHE[pin]) return ORIGIN_GEO_CACHE[pin];
+  // 2. Local pincode DB (instant, no network)
+  if (LOCAL_PINCODE_DB[pin]) {
+    log('Geocode ' + pin + ' => local DB (instant)', 'muted');
+    return LOCAL_PINCODE_DB[pin];
+  }
+  // 3. localStorage cache
   try {
-    log('🗺 Geocoding pincode ' + pin + ' (Nominatim/OSM)', 'info');
+    const raw = localStorage.getItem(GEO_LS_PREFIX + pin);
+    if (raw) {
+      const { geo, ts } = JSON.parse(raw);
+      if (Date.now() - ts < GEO_LS_TTL_MS) {
+        log('Geocode ' + pin + ' => localStorage cache', 'muted');
+        return geo;
+      }
+    }
+  } catch(_) {}
+  // 4. Nominatim (no User-Agent - browsers forbid it)
+  try {
+    log('Geocoding pincode ' + pin + ' (Nominatim/OSM)', 'info');
     const url = 'https://nominatim.openstreetmap.org/search?postalcode=' + pin + '&country=India&format=json&limit=1';
-    const resp = await fetch(url, { headers: { 'Accept-Language': 'en', 'User-Agent': 'SwiftETA/2.5' } });
+    const resp = await fetchWithTimeout(url, { headers: { 'Accept-Language': 'en' } });
     const results = await resp.json();
     if (results?.length) {
-      const { lat, lon } = results[0];
-      log('✓ Geocoded ' + pin + ' → (' + parseFloat(lat).toFixed(4) + ', ' + parseFloat(lon).toFixed(4) + ')', 'ok');
-      return { lat: parseFloat(lat), lon: parseFloat(lon) };
+      const geo = { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon) };
+      log('Geocoded ' + pin + ' => (' + geo.lat.toFixed(4) + ', ' + geo.lon.toFixed(4) + ')', 'ok');
+      try { localStorage.setItem(GEO_LS_PREFIX + pin, JSON.stringify({ geo, ts: Date.now() })); } catch(_) {}
+      return geo;
     }
   } catch(e) {
-    log('⚠ Nominatim error: ' + e.message, 'warn');
+    log('Nominatim ' + (e.message==='timeout'?'timed out':('error: '+e.message)), 'warn');
   }
   return null;
 }
@@ -432,64 +486,54 @@ async function geocodePin(pin) {
 async function authenticateShiprocket() {
   const email = document.getElementById('srEmail').value.trim();
   const password = document.getElementById('srPassword').value.trim();
-  if (!email || !password) { log('⚠ Enter Shiprocket email & password first.', 'warn'); return; }
-
+  if (!email || !password) { log('Enter Shiprocket email and password first.', 'warn'); return; }
   const btn = document.getElementById('srAuthBtn');
   const icon = document.getElementById('srAuthIcon');
-  btn.disabled = true;
-  icon.textContent = '⏳';
-  log('🔐 Authenticating with Shiprocket Live API...', 'info');
-
+  btn.disabled = true; icon.textContent = 'Connecting...';
+  log('Authenticating with Shiprocket Live API...', 'info');
   try {
-    const resp = await fetch('https://apiv2.shiprocket.in/v1/external/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const resp = await fetchWithTimeout('https://apiv2.shiprocket.in/v1/external/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
-    });
+    }, 5000);
     const data = await resp.json();
     if (data.token) {
       shiprocketToken = data.token;
       document.getElementById('connectedBadge').classList.add('show');
       document.getElementById('dotShiprocket').classList.remove('off');
       document.getElementById('dotShiprocket').style.background = 'var(--success)';
-      log('✓ Shiprocket authenticated! Token secured. Real serviceability checks active.', 'ok');
-      icon.textContent = '✓';
-      btn.style.background = 'linear-gradient(135deg,var(--success),#059669)';
-    } else {
-      throw new Error(data.message || 'Authentication failed');
-    }
+      log('Shiprocket authenticated! Real serviceability checks active.', 'ok');
+      icon.textContent = 'Connected'; btn.style.background = 'linear-gradient(135deg,var(--success),#059669)';
+    } else { throw new Error(data.message || 'Authentication failed'); }
   } catch(e) {
-    log('✗ Shiprocket auth failed: ' + e.message + ' — falling back to simulator', 'err');
-    icon.textContent = '⚡';
-    btn.disabled = false;
+    log('Shiprocket auth failed: ' + e.message + ' - falling back to simulator', 'err');
+    icon.textContent = 'Retry'; btn.disabled = false;
   }
   btn.disabled = false;
 }
 
-// --- Real Shiprocket Serviceability ---
+// C3: Real Shiprocket Serviceability with timeout
 async function fetchShiprocketServiceability(originPin, destPin, weight) {
   if (!shiprocketToken) return null;
   try {
-    log('🛡 Calling Shiprocket serviceability API (Level 1)...', 'info');
+    log('Calling Shiprocket serviceability API (Level 1)...', 'info');
     const params = new URLSearchParams({
-      pickup_postcode: originPin,
-      delivery_postcode: destPin,
-      weight: weight.toString(),
-      cod: document.getElementById('togCOD').checked ? '1' : '0'
+      pickup_postcode: originPin, delivery_postcode: destPin,
+      weight: weight.toString(), cod: document.getElementById('togCOD').checked ? '1' : '0'
     });
-    const resp = await fetch('https://apiv2.shiprocket.in/v1/external/courier/serviceability?' + params, {
-      method: 'GET',
-      headers: { 'Authorization': 'Bearer ' + shiprocketToken }
-    });
+    const resp = await fetchWithTimeout(
+      'https://apiv2.shiprocket.in/v1/external/courier/serviceability?' + params,
+      { method: 'GET', headers: { 'Authorization': 'Bearer ' + shiprocketToken } }
+    );
     const data = await resp.json();
     if (data?.data?.available_courier_companies?.length) {
       const couriers = data.data.available_courier_companies;
       const best = couriers.sort((a,b) => (a.rate||999)-(b.rate||999))[0];
-      log('✓ Shiprocket L1: ' + best.courier_name + ' | ETA: ' + best.estimated_delivery_days + 'd | ₹' + best.rate, 'ok');
+      log('Shiprocket L1: ' + best.courier_name + ' | ETA: ' + best.estimated_delivery_days + 'd | Rs' + best.rate, 'ok');
       return { carrier: best.courier_name, days: parseInt(best.estimated_delivery_days)||3, rate: best.rate, engine: 'L1-Shiprocket', raw: couriers };
     }
   } catch(e) {
-    log('⚠ Shiprocket serviceability error: ' + e.message, 'warn');
+    log('Shiprocket serviceability ' + (e.message==='timeout'?'timed out':('error: '+e.message)), 'warn');
   }
   return null;
 }
@@ -500,112 +544,76 @@ function simulateCarriers(zone, weight, express) {
   const togSR = document.getElementById('togSR').checked;
   const togNP = document.getElementById('togNP').checked;
   const togDL = document.getElementById('togDL').checked;
-
   let results = [];
   const base = zone.baseRate + (weight * 20);
   const expMult = express ? 1.6 : 1;
   const codCharge = cod ? 30 : 0;
-
-  if (togSR) {
-    results.push({ name:'Shiprocket (sim)', days: Math.max(1, zone.days + (express?-1:0)), rate: Math.round((base * 1.05 + codCharge) * expMult), engine:'sim-SR' });
-    log('↪ Shiprocket (sim): OK', 'muted');
-  } else { log('↪ Shiprocket: OFFLINE (toggle)', 'warn'); }
-
-  if (togNP) {
-    results.push({ name:'NimbusPost (sim)', days: Math.max(1, zone.days + (express?-1:0)), rate: Math.round((base * 0.95 + codCharge) * expMult), engine:'sim-NP' });
-    log('↪ NimbusPost (sim): OK', 'muted');
-  } else { log('↪ NimbusPost: OFFLINE (toggle)', 'warn'); }
-
-  if (togDL) {
-    results.push({ name:'Delhivery (sim)', days: Math.max(1, zone.days + (express?-1:0)), rate: Math.round((base + codCharge) * expMult), engine:'sim-DL' });
-    log('↪ Delhivery (sim): OK', 'muted');
-  } else { log('↪ Delhivery: OFFLINE (toggle)', 'warn'); }
-
+  if (togSR) { results.push({ name:'Shiprocket (sim)', days: Math.max(1, zone.days + (express?-1:0)), rate: Math.round((base * 1.05 + codCharge) * expMult), engine:'sim-SR' }); log('Shiprocket (sim): OK', 'muted'); }
+  else { log('Shiprocket: OFFLINE (toggle)', 'warn'); }
+  if (togNP) { results.push({ name:'NimbusPost (sim)', days: Math.max(1, zone.days + (express?-1:0)), rate: Math.round((base * 0.95 + codCharge) * expMult), engine:'sim-NP' }); log('NimbusPost (sim): OK', 'muted'); }
+  else { log('NimbusPost: OFFLINE (toggle)', 'warn'); }
+  if (togDL) { results.push({ name:'Delhivery (sim)', days: Math.max(1, zone.days + (express?-1:0)), rate: Math.round((base + codCharge) * expMult), engine:'sim-DL' }); log('Delhivery (sim): OK', 'muted'); }
+  else { log('Delhivery: OFFLINE (toggle)', 'warn'); }
   return results;
 }
 
-// --- Main ETA Function ---
+// C1: Main ETA function - parallel wave: geocode + shiprocket fire together
+// pincodeInfo feeds display panels only and does NOT block ETA
 async function runETA() {
   const destPin = document.getElementById('destPin').value.trim();
   const originPin = document.getElementById('originPin').value.trim() || ORIGIN_DEFAULT;
   const weight = parseFloat(document.getElementById('weight').value) || 0.5;
   const express = document.getElementById('togExpress').checked;
 
-  if (!/^[1-9][0-9]{5}$/.test(destPin)) {
-    log('✗ Invalid destination pincode. Must be 6 digits.', 'err');
-    return;
-  }
-  if (!/^[1-9][0-9]{5}$/.test(originPin)) {
-    log('✗ Invalid origin pincode.', 'err');
-    return;
-  }
+  if (!/^[1-9][0-9]{5}$/.test(destPin)) { log('Invalid destination pincode. Must be 6 digits.', 'err'); return; }
+  if (!/^[1-9][0-9]{5}$/.test(originPin)) { log('Invalid origin pincode.', 'err'); return; }
 
   const btn = document.getElementById('calculateBtn');
   const icon = document.getElementById('calcBtnIcon');
   const txt = document.getElementById('calcBtnText');
-  btn.disabled = true;
-  icon.innerHTML = '<span class="loading-spin">⏳</span>';
-  txt.textContent = 'Calculating...';
-
+  btn.disabled = true; icon.innerHTML = '<span class="loading-spin">...</span>'; txt.textContent = 'Calculating...';
   document.getElementById('placeholderMsg').style.display = 'none';
   document.getElementById('etaResult').style.display = 'block';
   document.getElementById('progressFill').style.width = '10%';
 
-  log('═══ SwiftETA Engine Started ═══', 'info');
-  log('Origin: ' + originPin + ' → Destination: ' + destPin, 'info');
+  log('=== SwiftETA Engine Started ===', 'info');
+  log('Origin: ' + originPin + ' => Destination: ' + destPin, 'info');
   log('Weight: ' + weight + 'kg | Express: ' + express, 'muted');
 
-  // Step 1: Fetch pincode metadata
-  const [originInfo, destInfo] = await Promise.all([
-    fetchPincodeInfo(originPin),
-    fetchPincodeInfo(destPin)
-  ]);
-  document.getElementById('progressFill').style.width = '25%';
+  // C1: Fire pincodeInfo as non-blocking background task
+  const pincodeInfoPromise = Promise.all([fetchPincodeInfo(originPin), fetchPincodeInfo(destPin)]);
+  pincodeInfoPromise.then(([oi, di]) => {
+    if (oi) showPincodePanel('originInfo', oi);
+    if (di) showPincodePanel('destInfo', di);
+  });
 
-  // Show pincode info panels
-  if (originInfo) showPincodePanel('originInfo', originInfo);
-  if (destInfo) showPincodePanel('destInfo', destInfo);
-
-  // Step 2: Geocode both pincodes
-  const [oGeo, dGeo] = await Promise.all([
+  // C1: Geocoding + live Shiprocket fire in one parallel wave
+  const [oGeo, dGeo, liveResult] = await Promise.all([
     geocodePin(originPin),
-    geocodePin(destPin)
+    geocodePin(destPin),
+    fetchShiprocketServiceability(originPin, destPin, weight),
   ]);
-  document.getElementById('progressFill').style.width = '50%';
+
+  document.getElementById('progressFill').style.width = '70%';
 
   let distKm = null;
   let zone = ZONES[3]; // default Zone 4
-
   if (oGeo && dGeo) {
     distKm = Math.round(haversine(oGeo.lat, oGeo.lon, dGeo.lat, dGeo.lon));
     zone = zoneByDist(distKm);
-    log('📏 Haversine distance: ' + distKm + ' km → Zone ' + zone.zone + ' (' + zone.label + ')', 'ok');
+    log('Haversine distance: ' + distKm + ' km => Zone ' + zone.zone + ' (' + zone.label + ')', 'ok');
   } else {
-    log('⚠ Could not geocode. Using pin prefix zone estimation.', 'warn');
-    // Fallback: estimate zone by first digit difference
+    log('Could not geocode. Using pin prefix zone estimation.', 'warn');
     const zDiff = Math.abs(parseInt(originPin[0]) - parseInt(destPin[0]));
     zone = ZONES[Math.min(zDiff, 5)];
-    log('↪ Estimated Zone ' + zone.zone + ' by prefix diff=' + zDiff, 'muted');
+    log('Estimated Zone ' + zone.zone + ' by prefix diff=' + zDiff, 'muted');
   }
 
-  document.getElementById('progressFill').style.width = '65%';
+  document.getElementById('progressFill').style.width = '85%';
 
-  // Step 3: Try real Shiprocket API (Level 1)
-  let liveResult = null;
-  if (shiprocketToken) {
-    liveResult = await fetchShiprocketServiceability(originPin, destPin, weight);
-  } else {
-    log('ℹ Shiprocket not authenticated — using simulation. Add credentials for live data.', 'muted');
-  }
-
-  document.getElementById('progressFill').style.width = '80%';
-
-  // Step 4: Simulated carriers (Level 2)
   const simResults = simulateCarriers(zone, weight, express);
-
   document.getElementById('progressFill').style.width = '95%';
 
-  // Step 5: Pick best result
   let finalResult;
   if (liveResult) {
     finalResult = { ...liveResult, engine: 'L1-Shiprocket-Live' };
@@ -613,105 +621,72 @@ async function runETA() {
     const best = simResults.sort((a,b)=>a.rate-b.rate)[0];
     finalResult = { carrier: best.name, days: best.days, rate: best.rate, engine: 'L2-Simulation', zone: zone.zone };
   } else {
-    log('⚠ All APIs offline. Using Haversine-only fallback.', 'warn');
-    finalResult = {
-      carrier: 'Haversine Fallback',
-      days: zone.days,
-      rate: zone.baseRate + Math.round(weight * 20),
-      engine: 'L3-Haversine',
-      zone: zone.zone
-    };
+    log('All APIs offline. Using Haversine-only fallback.', 'warn');
+    finalResult = { carrier: 'Haversine Fallback', days: zone.days, rate: zone.baseRate + Math.round(weight * 20), engine: 'L3-Haversine', zone: zone.zone };
   }
 
-  // Adjust for express
   if (express && finalResult.days > 1) {
     finalResult.days = Math.max(1, finalResult.days - 1);
     finalResult.rate = Math.round(finalResult.rate * 1.6);
-    log('⚡ Express mode: -1 day, +60% rate', 'info');
+    log('Express mode: -1 day, +60% rate', 'info');
   }
 
-  // Calculate delivery date
   const deliveryDate = addBusinessDays(new Date(), finalResult.days);
   const dateStr = deliveryDate.toLocaleDateString('en-IN', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
-
   document.getElementById('progressFill').style.width = '100%';
 
-  // Render results
   document.getElementById('etaDays').textContent = finalResult.days + (finalResult.days===1?' Day':' Days');
   document.getElementById('etaDate').textContent = 'By ' + dateStr;
   document.getElementById('mCarrier').textContent = finalResult.carrier;
-  document.getElementById('mRate').textContent = '₹' + (finalResult.rate||'--');
-  document.getElementById('mZone').textContent = 'Zone ' + (finalResult.zone||zone.zone) + ' — ' + zone.label;
+  document.getElementById('mRate').textContent = 'Rs' + (finalResult.rate||'--');
+  document.getElementById('mZone').textContent = 'Zone ' + (finalResult.zone||zone.zone) + ' - ' + zone.label;
   document.getElementById('mDist').textContent = distKm ? distKm + ' km' : 'N/A';
-  document.getElementById('mOrigin').textContent = originInfo ? (originInfo.district||originPin) : originPin;
-  document.getElementById('mDest').textContent = destInfo ? (destInfo.district||destPin) : destPin;
 
-  // Engine badge
   const badge = document.getElementById('engineBadge');
-  if (finalResult.engine.includes('L1')) {
-    badge.textContent = '⚡ L1 — Shiprocket Live';
-    badge.className = 'engine-badge engine-l1';
-  } else if (finalResult.engine.includes('L2')) {
-    badge.textContent = '🔄 L2 — Simulation';
-    badge.className = 'engine-badge engine-l2';
-  } else {
-    badge.textContent = '📐 L3 — Haversine';
-    badge.className = 'engine-badge engine-sim';
-  }
+  if (finalResult.engine.includes('L1')) { badge.textContent = 'L1 - Shiprocket Live'; badge.className = 'engine-badge engine-l1'; }
+  else if (finalResult.engine.includes('L2')) { badge.textContent = 'L2 - Simulation'; badge.className = 'engine-badge engine-l2'; }
+  else { badge.textContent = 'L3 - Haversine'; badge.className = 'engine-badge engine-sim'; }
 
-  log('═══ ETA Result: ' + finalResult.days + ' days via ' + finalResult.carrier + ' | ₹' + finalResult.rate + ' ═══', 'ok');
+  log('=== ETA Result: ' + finalResult.days + ' days via ' + finalResult.carrier + ' | Rs' + finalResult.rate + ' ===', 'ok');
 
-  // Update courier comparison tab
   renderCourierComparison(simResults, liveResult, zone, weight, express);
-
-  // Highlight active zone
   renderZoneMap(zone.zone);
 
-  btn.disabled = false;
-  icon.textContent = '⚡';
-  txt.textContent = 'Calculate ETA';
+  pincodeInfoPromise.then(([oi, di]) => {
+    document.getElementById('mOrigin').textContent = oi ? (oi.district||originPin) : originPin;
+    document.getElementById('mDest').textContent = di ? (di.district||destPin) : destPin;
+  });
+
+  btn.disabled = false; icon.textContent = 'Calculate'; txt.textContent = 'Calculate ETA';
 }
 
 function showPincodePanel(elId, info) {
   const el = document.getElementById(elId);
   el.style.display = 'block';
-  el.innerHTML = ['District','State','Circle'].map(k => 
-    '<div class="pi-row"><span class="pi-key">' + k + '</span><span class="pi-val">' + (info[k.toLowerCase()]||'—') + '</span></div>'
+  el.innerHTML = ['District','State','Circle'].map(k =>
+    '<div class="pi-row"><span class="pi-key">' + k + '</span><span class="pi-val">' + (info[k.toLowerCase()]||'-') + '</span></div>'
   ).join('');
 }
 
 function renderCourierComparison(simResults, liveResult, zone, weight, express) {
   const list = document.getElementById('courierList');
   let allCouriers = [];
-  
   if (liveResult?.raw) {
     allCouriers = liveResult.raw.slice(0,8).map(c => ({
-      name: c.courier_name,
-      days: parseInt(c.estimated_delivery_days)||zone.days,
-      rate: c.rate,
-      live: true
+      name: c.courier_name, days: parseInt(c.estimated_delivery_days)||zone.days, rate: c.rate, live: true
     }));
   }
-
   COURIER_SIMS.forEach(cs => {
     const base = zone.baseRate + weight*20;
     const expM = express ? 1.6 : 1;
-    allCouriers.push({
-      name: cs.logo + ' ' + cs.name,
-      days: Math.max(1, zone.days + cs.daysOffset + (express?-1:0)),
-      rate: Math.round(base * cs.rateMultiplier * expM + (document.getElementById('togCOD').checked?30:0)),
-      live: false
-    });
+    allCouriers.push({ name: cs.logo + ' ' + cs.name, days: Math.max(1, zone.days + cs.daysOffset + (express?-1:0)), rate: Math.round(base * cs.rateMultiplier * expM + (document.getElementById('togCOD').checked?30:0)), live: false });
   });
-
   allCouriers.sort((a,b)=>a.rate-b.rate);
-  const best = allCouriers[0];
-
-  list.innerHTML = allCouriers.map((c,i) => 
+  list.innerHTML = allCouriers.map((c,i) =>
     '<div class="courier-item' + (i===0?' best':'') + '">' +
     '<div><div class="courier-name">' + c.name + (c.live?' <span style="font-size:0.65rem;background:rgba(34,197,94,0.2);color:var(--success);padding:1px 6px;border-radius:8px;">LIVE</span>':'') + '</div>' +
     '<div class="courier-eta">' + c.days + ' business day' + (c.days!==1?'s':'') + '</div></div>' +
-    '<div style="text-align:right"><div class="courier-price">₹' + c.rate + '</div>' + (i===0?'<div class="best-tag">BEST PRICE</div>':'') + '</div></div>'
+    '<div style="text-align:right"><div class="courier-price">Rs' + c.rate + '</div>' + (i===0?'<div class="best-tag">BEST PRICE</div>':'') + '</div></div>'
   ).join('');
 }
 
@@ -726,10 +701,10 @@ function renderZoneMap(activeZone) {
   ).join('');
   table.innerHTML = ZONES.map(z =>
     '<tr style="' + (z.zone===activeZone?'background:rgba(108,99,255,0.1);':'') + '">' +
-    '<td style="padding:8px;border-bottom:1px solid var(--border);">Zone ' + z.zone + ' — ' + z.label + '</td>' +
-    '<td style="padding:8px;border-bottom:1px solid var(--border);">≤' + (z.maxKm===Infinity?'∞':z.maxKm) + ' km</td>' +
+    '<td style="padding:8px;border-bottom:1px solid var(--border);">Zone ' + z.zone + ' - ' + z.label + '</td>' +
+    '<td style="padding:8px;border-bottom:1px solid var(--border);">up to ' + (z.maxKm===Infinity?'inf':z.maxKm) + ' km</td>' +
     '<td style="padding:8px;border-bottom:1px solid var(--border);">' + z.days + '</td>' +
-    '<td style="padding:8px;border-bottom:1px solid var(--border);">₹' + z.baseRate + '</td></tr>'
+    '<td style="padding:8px;border-bottom:1px solid var(--border);">Rs' + z.baseRate + '</td></tr>'
   ).join('');
 }
 
@@ -749,143 +724,88 @@ function switchTab(name) {
   event.target.classList.add('active');
 }
 
-// --- Load Holidays from Nager.Date ---
 async function loadHolidays() {
   try {
-    log('📅 Loading India public holidays 2026 (Nager.Date API)...', 'info');
-    const resp = await fetch('https://date.nager.at/api/v3/PublicHolidays/2026/IN');
+    log('Loading India public holidays 2026 (Nager.Date API)...', 'info');
+    const resp = await fetchWithTimeout('https://date.nager.at/api/v3/PublicHolidays/2026/IN', {});
     const data = await resp.json();
     holidays = data.map(h => h.date);
-    const badge = document.getElementById('dotHolidays');
-    badge.style.background = 'var(--success)';
-    log('✓ Loaded ' + holidays.length + ' public holidays for 2026', 'ok');
+    document.getElementById('dotHolidays').style.background = 'var(--success)';
+    log('Loaded ' + holidays.length + ' public holidays for 2026', 'ok');
     renderHolidays(data);
   } catch(e) {
-    log('⚠ Holiday API unavailable: ' + e.message, 'warn');
+    log('Holiday API unavailable: ' + e.message, 'warn');
     document.getElementById('dotHolidays').className = 'api-dot warn';
   }
 }
 
 function renderHolidays(data) {
   const el = document.getElementById('holidayList');
-  el.innerHTML = data.map(h =>
-    '<span class="hbadge">' + h.localName + ' — ' + h.date + '</span>'
-  ).join('');
+  el.innerHTML = data.map(h => '<span class="hbadge">' + h.localName + ' - ' + h.date + '</span>').join('');
 }
 
-// --- Load Docs Tab ---
 function renderDocs() {
   const el = document.getElementById('docsContent');
   el.innerHTML = '<div style="display:grid;gap:16px;">' +
-  renderApiCard('🛡️ Shiprocket (Level 1 — Real API)', 'Paid with free trial (500 shipments)', [
-    'Auth: POST https://apiv2.shiprocket.in/v1/external/auth/login',
-    'Serviceability: GET https://apiv2.shiprocket.in/v1/external/courier/serviceability',
-    'Register: app.shiprocket.in → use email/password directly'
-  ]) +
-  renderApiCard('📮 India Post Pincode API (FREE)', 'No API key required', [
-    'GET https://api.postalpincode.in/pincode/{PIN}',
-    'Returns: District, State, Circle, PostOffice name',
-    'No rate limit specified — use responsibly'
-  ]) +
-  renderApiCard('🗺️ OpenStreetMap Nominatim (FREE)', 'No API key — fair use policy', [
-    'GET https://nominatim.openstreetmap.org/search?postalcode={PIN}&country=India&format=json',
-    'Returns: lat, lon, display_name',
-    'Max 1 req/sec — used for Haversine distance calculation'
-  ]) +
-  renderApiCard('📅 Nager.Date Holidays (FREE)', 'No API key required', [
-    'GET https://date.nager.at/api/v3/PublicHolidays/2026/IN',
-    'Returns: date, name, localName for all Indian public holidays',
-    'Used to skip holidays in business-day ETA calculation'
-  ]) +
-  renderApiCard('📦 NimbusPost (Activate with credentials)', 'Free tier available', [
-    'Auth: POST https://api.nimbuspost.com/v1/users/login',
-    'Serviceability: POST https://api.nimbuspost.com/v1/courier/serviceability',
-    'Register: nimbuspost.com → Dashboard → API Credentials'
-  ]) +
-  renderApiCard('🚛 Delhivery (Partner onboarding)', 'Post KYC API token', [
-    'Register: delhivery.com/business',
-    'API token issued after KYC verification',
-    'Enterprise-grade courier API'
-  ]) + '</div>';
+    renderApiCard('Shiprocket (Level 1 - Real API)', 'Paid with free trial (500 shipments)', ['Auth: POST https://apiv2.shiprocket.in/v1/external/auth/login','Serviceability: GET https://apiv2.shiprocket.in/v1/external/courier/serviceability','Register: app.shiprocket.in']) +
+    renderApiCard('India Post Pincode API (FREE)', 'No API key required', ['GET https://api.postalpincode.in/pincode/{PIN}','Returns: District, State, Circle, PostOffice name','No rate limit specified']) +
+    renderApiCard('OpenStreetMap Nominatim (FREE)', 'No API key - fair use policy', ['GET https://nominatim.openstreetmap.org/search?postalcode={PIN}&country=India&format=json','Returns: lat, lon, display_name','Local DB covers common pins; Nominatim only on miss. Max 1 req/sec.']) +
+    renderApiCard('Nager.Date Holidays (FREE)', 'No API key required', ['GET https://date.nager.at/api/v3/PublicHolidays/2026/IN','Returns: date, name, localName for all Indian public holidays','Used to skip holidays in business-day ETA calculation']) +
+    renderApiCard('NimbusPost (Activate with credentials)', 'Free tier available', ['Auth: POST https://api.nimbuspost.com/v1/users/login','Serviceability: POST https://api.nimbuspost.com/v1/courier/serviceability','Register: nimbuspost.com Dashboard']) +
+    renderApiCard('Delhivery (Partner onboarding)', 'Post KYC API token', ['Register: delhivery.com/business','API token issued after KYC verification','Enterprise-grade courier API']) + '</div>';
 }
 
 function renderApiCard(title, subtitle, items) {
   return '<div style="background:var(--bg);border-radius:8px;padding:16px;border:1px solid var(--border);">' +
     '<div style="font-weight:700;margin-bottom:4px;">' + title + '</div>' +
     '<div style="color:var(--accent2);font-size:0.78rem;margin-bottom:10px;">' + subtitle + '</div>' +
-    items.map(i => '<div style="color:var(--muted);font-size:0.8rem;padding:3px 0;border-bottom:1px solid var(--border);">→ ' + i + '</div>').join('') +
+    items.map(i => '<div style="color:var(--muted);font-size:0.8rem;padding:3px 0;border-bottom:1px solid var(--border);">-> ' + i + '</div>').join('') +
     '</div>';
 }
 
-// --- API Health Check ---
 async function checkAPIs() {
   const statusText = document.getElementById('apiStatusText');
   statusText.textContent = 'Checking APIs...';
-
-  // Check India Post Pincode API
   try {
-    const r = await fetch('https://api.postalpincode.in/pincode/400001');
+    const r = await fetchWithTimeout('https://api.postalpincode.in/pincode/400001', {});
     const d = await r.json();
-    if (d[0]?.Status === 'Success') {
-      document.getElementById('dotPincode').style.background = 'var(--success)';
-      log('✓ India Post Pincode API: Online', 'ok');
-    }
-  } catch(e) {
-    document.getElementById('dotPincode').style.background = 'var(--warn)';
-    log('⚠ India Post API: ' + e.message, 'warn');
-  }
-
-  // Check Nominatim
+    if (d[0]?.Status === 'Success') { document.getElementById('dotPincode').style.background = 'var(--success)'; log('India Post Pincode API: Online', 'ok'); }
+  } catch(e) { document.getElementById('dotPincode').style.background = 'var(--warn)'; log('India Post API: ' + e.message, 'warn'); }
   try {
-    const r = await fetch('https://nominatim.openstreetmap.org/search?postalcode=400001&country=India&format=json&limit=1', {headers:{'User-Agent':'SwiftETA/2.5'}});
+    const r = await fetchWithTimeout('https://nominatim.openstreetmap.org/search?postalcode=400001&country=India&format=json&limit=1', { headers:{'Accept-Language':'en'} });
     const d = await r.json();
-    if (d?.length) {
-      document.getElementById('dotNominatim').style.background = 'var(--success)';
-      log('✓ Nominatim Geocoder: Online', 'ok');
-    }
-  } catch(e) {
-    document.getElementById('dotNominatim').style.background = 'var(--warn)';
-    log('⚠ Nominatim: ' + e.message, 'warn');
-  }
-
+    if (d?.length) { document.getElementById('dotNominatim').style.background = 'var(--success)'; log('Nominatim Geocoder: Online', 'ok'); }
+  } catch(e) { document.getElementById('dotNominatim').style.background = 'var(--warn)'; log('Nominatim: ' + e.message, 'warn'); }
   statusText.textContent = 'APIs Ready';
 }
 
-// --- Pincode input auto-lookup ---
 document.getElementById('destPin').addEventListener('input', function() {
   const pin = this.value.trim();
   if (/^[1-9][0-9]{5}$/.test(pin)) {
     fetchPincodeInfo(pin).then(info => { if(info) showPincodePanel('destInfo', info); });
-  } else {
-    document.getElementById('destInfo').style.display = 'none';
-  }
+  } else { document.getElementById('destInfo').style.display = 'none'; }
 });
 
 document.getElementById('originPin').addEventListener('input', function() {
   const pin = this.value.trim();
   if (/^[1-9][0-9]{5}$/.test(pin)) {
     fetchPincodeInfo(pin).then(info => { if(info) showPincodePanel('originInfo', info); });
-  } else {
-    document.getElementById('originInfo').style.display = 'none';
-  }
+  } else { document.getElementById('originInfo').style.display = 'none'; }
 });
 
-// Enter key trigger
 document.getElementById('destPin').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') runETA();
 });
 
-// --- Init ---
 window.addEventListener('DOMContentLoaded', async () => {
   renderZoneMap(null);
   renderDocs();
   await loadHolidays();
   await checkAPIs();
-  // Pre-load origin pincode info
   fetchPincodeInfo(document.getElementById('originPin').value).then(info => {
     if (info) showPincodePanel('originInfo', info);
   });
-  log('🚀 SwiftETA v2.5 initialized. Enter destination pincode to begin.', 'ok');
+  log('SwiftETA v2.5 initialized. Enter destination pincode to begin.', 'ok');
 });
 </script>
 </body>
