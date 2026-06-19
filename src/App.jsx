@@ -151,7 +151,7 @@ export default function App() {
     status: "unserviceable", error: "Please configure settings or search a valid pincode."
   });
   const [logs, setLogs] = useState([
-    { id:1, time:"11:51:24", type:"info",    text:"Redis initialization completed successfully."            },
+    { id:1, time:"11:51:24", type:"info",    text:"Client cache layer initialized."            },
     { id:2, time:"11:52:05", type:"info",    text:"Shiprocket Adapter verified online (healthcheck OK)"    },
     { id:3, time:"11:52:06", type:"warning", text:"Delhivery Adapter reported partial timeout. Fallback enabled." }
   ]);
@@ -215,7 +215,7 @@ export default function App() {
         primaryCarrier = live.carrierName;
         rateAmount     = `₹ ${live.rate}`;
         if (live.etd) {
-          const days = Math.ceil((new Date(live.etd) - new Date()) / (1000*3600*24));
+          const days = parseInt(live.etd, 10);
           baseDaysEstimate = Math.max(1, days);
         } else { baseDaysEstimate = 3; }
         confidence = 99; level1Success = true;
@@ -236,6 +236,13 @@ export default function App() {
         if      (distanceKm > 1000) baseDaysEstimate += 1.5;
         else if (distanceKm > 500)  baseDaysEstimate += 0.8;
       }
+    }
+
+    // Phase 1 fix: compute carrier rate using distance bracket factor
+    if (rateAmount === "FREE") {
+      const distFactor = getDistanceBracket(distanceKm).factor;
+      const baseRate = 35 + (0.5 * 20); // 0.5kg default weight
+      rateAmount = "₹ " + Math.round(baseRate * distFactor);
     }
 
     let minDays = Math.max(1, Math.floor(baseDaysEstimate*(expressOption?0.6:1)));
@@ -447,13 +454,13 @@ export default function App() {
                     {/* Redis toggle */}
                     <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 mb-4">
                       <div className="text-xs font-semibold text-rose-400 border-b border-slate-800 pb-1.5 mb-3 flex justify-between items-center">
-                        <span className="flex items-center gap-1.5"><HardDrive className="h-3 w-3" /> Redis Cache Layer</span>
+                        <span className="flex items-center gap-1.5"><HardDrive className="h-3 w-3" /> Client Cache Layer</span>
                         <span className="text-[10px] bg-rose-950 text-rose-300 px-1.5 py-0.5 rounded">24h SLA</span>
                       </div>
                       <div className="flex items-center justify-between">
                         <div>
-                          <span className="text-xs text-slate-200 block">Enable Cache Middleware</span>
-                          <span className="text-[10px] text-slate-500">Saves ~350ms overhead</span>
+                          <span className="text-xs text-slate-200 block">Enable Client Cache</span>
+                          <span className="text-[10px] text-slate-500">Saves ~350ms per lookup</span>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input type="checkbox" checked={enableRedisCache} onChange={()=>setEnableRedisCache(v=>!v)} className="sr-only peer" />
@@ -547,7 +554,7 @@ export default function App() {
                         </div>
                         <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
                           <div className="flex justify-between">
-                            <span className="text-slate-400 text-[10px] uppercase">Redis Hit</span>
+                            <span className="text-slate-400 text-[10px] uppercase">Cache Hit</span>
                             <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${estimationResult.cached ? 'bg-rose-950 text-rose-300' : 'bg-slate-900 text-slate-500'}`}>
                               {estimationResult.cached ? 'HIT' : 'MISS'}
                             </span>
