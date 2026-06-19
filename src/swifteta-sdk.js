@@ -32,42 +32,59 @@
   // ── Internal state ──────────────────────────────────────────────────────────
   const BASE_URL = 'https://api.swifteta.in';
   let _config    = null;   // set by init()
-  let _cache     = {};     // in-memory request cache
+  let _cache = {}; // key -> { data, ts } resolved values
+  let _inflight = {}; // key -> Promise (in-flight coalescing)
+  const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+  const CACHE_MAX_SIZE = 200;
 
-  // ── Validation helpers ──────────────────────────────────────────────────────
-  function assertReady() {
-    if (!_config) throw new Error('[SwiftETA] Call SwiftETA.init() before using any methods.');
-  }
-
-  function assertPin(pin) {
-    if (typeof pin !== 'string' || !/^[1-9][0-9]{5}$/.test(pin))
-      throw new Error(`[SwiftETA] Invalid pincode: ${pin}. Must be a 6-digit string.`);
-  }
-
-  // ── HTTP helper ─────────────────────────────────────────────────────────────
+  // -- HTTP helper (C5 fixes: coalesce in-flight, TTL, max-size, no caching failures) --
   async function request(method, path, body) {
     assertReady();
     const cacheKey = method + path + JSON.stringify(body || '');
-    if (_config.cache && _cache[cacheKey]) return _cache[cacheKey];
 
-    const res = await fetch(BASE_URL + path, {
-      method,
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': 'Bearer ' + _config.apiKey,
-        'X-SDK-Version': '2.5.0',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw Object.assign(new Error(err.message || 'SwiftETA API error'), { code: err.code, status: res.status });
+    // Return a valid cached result (within TTL)
+    if (_config.cache && _cache[cacheKey] && (Date.now() - _cache[cacheKey].ts < CACHE_TTL_MS)) {
+      return _cache[cacheKey].data;
     }
 
-    const data = await res.json();
-    if (_config.cache) _cache[cacheKey] = data;
-    return data;
+    // Return in-flight promise for identical concurrent requests
+    if (_inflight[cacheKey]) return _inflight[cacheKey];
+
+    const promise = (async () => {
+      const res = await fetch(BASE_URL + path, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + _config.apiKey,
+          'X-SDK-Version': '2.5.0',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw Object.assign(new Error(err.message || 'SwiftETA API error'), { code: err.code, status: res.status });
+      }
+
+      const data = await res.json();
+
+      // Only cache successful responses; evict oldest entries if over max size
+      if (_config.cache) {
+        if (Object.keys(_cache).length >= CACHE_MAX_SIZE) {
+          const oldest = Object.entries(_cache).sort((a, b) => a[1].ts - b[1].ts)[0][0];
+          delete _cache[oldest];
+        }
+        _cache[cacheKey] = { data, ts: Date.now() };
+      }
+      return data;
+    })();
+
+    _inflight[cacheKey] = promise;
+    try {
+      return await promise;
+    } finally {
+      delete _inflight[cacheKey]; // clean up after resolution or rejection
+    }
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
@@ -96,7 +113,7 @@
       onReady:  opts.onReady  || null,
     };
 
-    _cache = {};   // clear cache on re-init
+  _cache = {}; _inflight = {}; // clear cache + in-flight on re-init
     if (typeof _config.onReady === 'function') _config.onReady();
   }
 
