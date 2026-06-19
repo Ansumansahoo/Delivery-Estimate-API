@@ -1,6 +1,6 @@
 # ⚡ SwiftETA v2.5 — India Delivery Estimator + B2B SDK
 
-> A production-ready, multi-level India shipping ETA engine for **D2C storefronts** and a full **B2B/Wholesale portal** with a drop-in SDK and REST API that suppliers can embed on their own storefront.
+> A multi-level India shipping ETA engine for **D2C storefronts** and a full **B2B/Wholesale portal** with a drop-in SDK and REST API that suppliers can embed on their own storefront.
 
 ---
 
@@ -8,12 +8,23 @@
 
 ```
 Delivery-Estimate-API/
-├── index.html              — Vanilla HTML standalone app (no build needed)
+├── index.html              — Vanilla HTML standalone demo (no build needed)
+├── app.html                — Vite React entry point
 ├── package.json            — Vite + React + Tailwind project config
+├── vite.config.js          — Vite build config (input: app.html)
+├── tailwind.config.js      — Tailwind CSS config
+├── .gitignore              — Standard excludes
+├── LICENSE                 — MIT
 ├── src/
 │   ├── App.jsx             — Main React app (D2C ETA simulator + tabs)
 │   ├── B2BPortal.jsx       — B2B Wholesale portal (login-gated SDK & API)
+│   ├── main.jsx            — React entry point (createRoot)
+│   ├── index.css           — Tailwind directives + global resets
 │   └── swifteta-sdk.js     — Standalone JS SDK (UMD — works anywhere)
+├── python/                 — Pure-Python engine + FastAPI backend (see python/README.md)
+│   ├── swifteta/           — Package: engine, carriers, api, cli
+│   ├── examples/           — Sample CSV for batch testing
+│   └── requirements.txt
 └── README.md               — This file
 ```
 
@@ -51,7 +62,7 @@ The main app for e-commerce teams to test and demonstrate shipping estimates.
 |---|---|
 | Multi-level engine | L1 Shiprocket live API → L2 simulated carriers → L3 Haversine fallback |
 | Real Shiprocket auth | Enter email + password to unlock live serviceability data |
-| 5 free APIs | India Post Pincode, OSM Nominatim, Nager.Date holidays |
+| 3 free APIs | India Post Pincode, OSM Nominatim, Nager.Date holidays |
 | 3 live UI views | Product page widget · Cart panel · Checkout summary |
 | Zone Map | 6 zones (Local ≤50 km → Cross-country >1000 km) |
 | Business-day ETA | Skips weekends + public holidays |
@@ -87,6 +98,8 @@ All SDK credentials, API keys, and code snippets are **blurred and inaccessible*
 ---
 
 ## 📦 SDK Integration (`swifteta-sdk.js`)
+
+> **Note — PLANNED specification.** `@swifteta/b2b-sdk` is not on npm yet. The SDK code (`src/swifteta-sdk.js`) documents the intended interface; it will call the real API once the backend (`python/` or a hosted service) is deployed.
 
 A lightweight (~8 KB) UMD library. Works in browsers, Node/CommonJS, and ES modules.
 
@@ -142,7 +155,9 @@ console.log(result.days_min, result.rate_inr);
 
 ## 🌐 REST API Reference
 
-**Base URL:** `https://api.swifteta.in`
+> **Note — PLANNED specification.** The `https://api.swifteta.in` server does not exist yet. This section documents the intended contract so the SDK and any future backend implementation agree. See the `python/` directory for a local FastAPI reference implementation.
+
+**Base URL:** `https://api.swifteta.in` *(planned)*
 
 **Authentication:** All requests require:
 ```
