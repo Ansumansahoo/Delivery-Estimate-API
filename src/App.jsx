@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Truck, CheckCircle, AlertTriangle, Clock, RefreshCw, BarChart2, Database, Shield, Server, Zap, Search, MapPin,
   Layers, Settings, HardDrive, Info, ArrowRight, TrendingUp, Users, Activity, FileText, ChevronRight,
@@ -281,7 +281,13 @@ export default function App() {
     } finally { setIsEngineLoading(false); }
   };
 
-  useEffect(() => { computeShippingETA(); }, [computeShippingETA]);
+  // C4: debounce destination pincode changes; health toggles do NOT trigger network calls
+  const _debounceRef = useRef(null);
+  useEffect(() => {
+    clearTimeout(_debounceRef.current);
+    _debounceRef.current = setTimeout(() => { computeShippingETA(); }, 400);
+    return () => clearTimeout(_debounceRef.current);
+  }, [destinationPincode, expressOption]); // only destination + express trigger a live fetch
 
   const handlePincodeSearch = (pin) => {
     setDestinationPincode(pin);
