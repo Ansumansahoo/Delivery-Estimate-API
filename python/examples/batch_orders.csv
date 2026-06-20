@@ -1,0 +1,6 @@
+id,destination,weight_kg,express,cod
+ORD-001,110001,2.5,false,true
+ORD-002,400001,1.2,false,false
+ORD-003,700001,3.0,true,false
+ORD-004,600001,0.5,false,true
+ORD-005,999999,1.0,false,false
